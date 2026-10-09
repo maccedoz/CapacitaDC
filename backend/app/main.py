@@ -21,7 +21,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.database import engine
 from app import models  # noqa: F401  (registra os modelos no Base antes das migrações)
-from app.api import auth, users, materials, nodes, activities, grades, games, gamification, suggestions, audit
+from app.api import auth, users, materials, nodes, activities, grades, games, gamification, suggestions, audit, dashboard
 from app.migrations import migrate
 
 # Ensure all tables exist (idempotent — safe to run every startup)
@@ -90,3 +90,4 @@ app.include_router(games.router,      prefix="/api",            tags=["games"])
 app.include_router(gamification.router, prefix="/api/gamification", tags=["gamification"])
 app.include_router(suggestions.router, prefix="/api/suggestions", tags=["suggestions"])
 app.include_router(audit.router,      prefix="/api/audit",      tags=["audit"])
+app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])

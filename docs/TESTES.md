@@ -180,3 +180,15 @@ BASE_URL=http://127.0.0.1:3017 ADMIN_EMAIL=admin@example.com TRAINEE_EMAIL=train
 ```
 
 Cria quatro entregas pela API e verifica no navegador: `Enter` salva e leva o foco à próxima entrega sem recarregar a fila (um rascunho digitado em outra entrega continua lá), `J`/`K`, `F` e `Ctrl+Enter`, a lista de atalhos (`?`), a correção em lote com confirmação e o "corrigida por" nas corrigidas. Disponível como `npm run test:batch`.
+
+## Dashboards
+
+`test_dashboard.py` cobre público por trilha, médias, primeira tentativa por versão, acerto parcial e cenários, questionários antigos, trilhas vazias, permissões e quantidade constante de consultas.
+
+Com a API descartável e o frontend apontando para ela:
+
+```bash
+BASE_URL=http://127.0.0.1:3027 node frontend/tests/dashboards_journey.cjs
+```
+
+A jornada cria e depois remove um jogo de teste; confere a melhor nota, o uso da primeira tentativa para as questões, os gráficos nos dois temas, a largura no celular e os filtros do gerente. Disponível como `npm run test:dashboards`.
