@@ -10,7 +10,7 @@ etapa não entra na conta, para o percentual medir o público da própria trilha
 from collections import defaultdict
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app import models
 from app.services import access
@@ -49,7 +49,7 @@ def participants(db: Session, trail: str) -> list[models.User]:
 
 
 def _trail_nodes(db: Session, trail: str) -> list[models.TrainingNode]:
-    return (db.query(models.TrainingNode).filter(models.TrainingNode.eixo == trail)
+    return (db.query(models.TrainingNode).options(joinedload(models.TrainingNode.activity)).filter(models.TrainingNode.eixo == trail)
             .order_by(models.TrainingNode.order_index, models.TrainingNode.id).all())
 
 

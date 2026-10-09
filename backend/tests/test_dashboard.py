@@ -144,6 +144,8 @@ class DashboardTests(unittest.TestCase):
                 event.remove(self.api.engine, 'before_cursor_execute', capture)
             return len(queries)
         node = self.base.game()
+        activity = self.create('activities', {'title': 'Entrega', 'eixo': 'vendas', 'accepts_file': False})
+        self.create('nodes', {'name': 'Entrega', 'type': 'activity', 'eixo': 'vendas', 'activity_id': activity['id'], 'is_released': True})
         before = count()
         with self.api.sessions() as db:
             for index in range(12):
@@ -153,6 +155,10 @@ class DashboardTests(unittest.TestCase):
                 db.add(models.TrainingNode(id=f'node-{index}', name='Etapa', type='game', eixo='vendas',
                                           game_revision_id=node['game_revision_id'], order_index=index + 1, is_released=True))
                 db.add(models.UserNodeProgress(user_id=user.id, node_id=f'node-{index}', grade=8, completed=True))
+                db.add(models.Activity(id=f'activity-{index}', title='Outra entrega', eixo='vendas', accepts_file=False,
+                                       created_at=datetime.now(timezone.utc)))
+                db.add(models.TrainingNode(id=f'activity-node-{index}', name='Entrega', type='activity', eixo='vendas',
+                                          activity_id=f'activity-{index}', is_released=True, order_index=index + 20))
             db.commit()
         self.assertEqual(count(), before)
         self.assertLessEqual(before, 5)

@@ -49,6 +49,16 @@ class User(Base):
 
     # Relationships
     node_progress = relationship("UserNodeProgress", back_populates="user", cascade="all, delete-orphan")
+    achievement_state = relationship("MemberAchievementState", uselist=False, cascade="all, delete-orphan")
+
+class MemberAchievementState(Base):
+    """Apenas os avisos já vistos; conquistas e pontos continuam derivados das notas."""
+    __tablename__ = "member_achievement_states"
+
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    initialized_at = Column(UTCDateTime, nullable=False)
+    seen_ids = Column(JSON, nullable=False, default=list)
+
 
 class Material(Base):
     __tablename__ = "materials"

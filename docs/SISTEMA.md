@@ -107,11 +107,26 @@ Para trainees, o frontend não exibe troféus, pontos nem bonificações; mostra
 
 ### Gamificação dos membros
 
-Exclusiva para o perfil **membro**: `GET /api/gamification` responde 403 para trainees e perfis administrativos, e a aba **Conquistas** existe só no portal do membro. Nada é gravado: tudo é recalculado a cada consulta a partir das notas, então correções e novas tentativas valem na hora.
+Exclusiva para o perfil **membro**: `GET /api/gamification` responde 403 para trainees e perfis administrativos, e a aba **Conquistas** existe só no portal do membro. Pontos, níveis e conquistas são recalculados a cada consulta a partir das notas; apenas o estado dos avisos já vistos fica guardado.
 
 - **Pontos:** cada jogo (melhor nota) e cada entrega corrigida (nota efetiva, a maior entre a atual e a anterior) vale `nota × 10`, de 0 a 100. Opcionais também pontuam; entregas pendentes não.
 - **Nível:** 1 Iniciante (0), 2 Aprendiz (100), 3 Praticante (250), 4 Competente (450), 5 Avançado (700), 6 Especialista (1000) e 7 Mestre (1400 pontos). O cabeçalho mostra nível e pontos; a aba mostra quanto falta para o próximo.
-- **Conquistas:** Primeiro passo (concluir uma etapa), Nota máxima (um 10), Persistente (ser aprovado num jogo depois de uma tentativa abaixo de 7), Consistente (7 ou mais em cinco avaliações) e Trilha concluída (todas as etapas obrigatórias do eixo do membro). As que têm meta mostram o progresso.
+- **Conquistas:** não acrescentam pontos. As metas mostram o progresso, com jogos diferentes contados uma única vez mesmo quando o mesmo jogo aparece em mais de um nó.
+
+| Conquista | Regra |
+| --- | --- |
+| Hello, World! | Concluir uma etapa. |
+| Farmou Aura | Tirar 10 em um jogo ou entrega. |
+| Brasileiro não desiste nunca | Ser aprovado em um jogo depois de uma tentativa abaixo de 7. A reprovação precisa ocorrer antes da aprovação. |
+| C de uma equação | Tirar 7 ou mais em cinco avaliações. |
+| Zerou o game | Concluir todas as etapas obrigatórias do próprio eixo. |
+| Hat-trick | Tirar 10 em três jogos diferentes. |
+| Nem precisou de Ctrl+Z | Tirar 7 ou mais na primeira tentativa em cinco jogos diferentes da biblioteca. Questionários antigos não possuem histórico de tentativas para essa regra. |
+| No meio do caminho tinha uma pedra | Concluir pelo menos metade das etapas obrigatórias do próprio eixo, arredondando para cima. |
+| Mochileiro dos eixos | Concluir uma etapa em cada um dos três eixos, inclusive opcionais. |
+| Avatar: mestre dos três eixos | Concluir as etapas obrigatórias dos três eixos. Eixos sem etapas obrigatórias não contam como concluídos. |
+
+Na primeira consulta depois da atualização, conquistas existentes são marcadas como vistas sem popup. Depois disso, novas conquistas aparecem juntas num aviso com os nomes e as regras. Ao fechar, `POST /api/gamification/seen` confirma o aviso no banco, inclusive para outros navegadores. Falhas na confirmação permitem tentar novamente. O aviso aguarda o fechamento do leitor, do popup de senha e da comemoração de trilha, para não empilhar janelas.
 - **Ranking:** todos os membros por pontos, com empates na mesma posição (1, 1, 3). A aba começa no eixo do membro, com posições recalculadas dentro dele, e alterna para o geral. Mostra nome, eixo, nível e pontos; notas individuais não aparecem.
 
 ## Trilhas e acesso ao conteúdo
@@ -273,7 +288,9 @@ As migrações rodam na inicialização da API e registram versões em `schema_m
 
 A migração 9 passa o prazo para as etapas: guarda os prazos das atividades em `activity_deadline_backup_v9` e copia o prazo da atividade para cada etapa de atividade que não tinha prazo. Onde a etapa já tinha prazo, ele passa a valer, sem alteração de dados.
 
-A migração 10 cria `audit_logs` e acrescenta autor e data da correção às entregas (`graded_by` e `graded_at`). Correções antigas continuam sem autor identificado.
+A migração 10 cria `audit_logs` e acrescenta autor e data da correção às entregas (`graded_by_id` e `graded_at`). Correções antigas continuam sem autor identificado.
+
+A migração 11 cria `member_achievement_states` para registrar a primeira consulta e os avisos de conquistas já vistos. Ela não recalcula nem altera pontos e notas.
 
 O papel de gerente reaproveita as colunas `users.type` e `users.eixo` e não exige migração de dados: nomes de eixo antigos são normalizados na leitura e convertidos para o código na próxima gravação. A tabela `material_uploads` é criada na inicialização como as demais tabelas novas.
 

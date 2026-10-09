@@ -236,3 +236,8 @@ def migrate(engine):
                 if name not in columns:
                     connection.execute(text(f"ALTER TABLE activity_submissions ADD COLUMN {name} {definition}"))
             connection.execute(text("INSERT INTO schema_migrations(version) VALUES (10)"))
+
+        if 11 not in applied:
+            # create_all cria member_achievement_states. A primeira consulta de cada
+            # membro guarda as conquistas existentes como vistas, sem emitir popups.
+            connection.execute(text("INSERT INTO schema_migrations(version) VALUES (11)"))

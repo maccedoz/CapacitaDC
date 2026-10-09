@@ -30,7 +30,7 @@ cd frontend
 npx playwright install chromium
 ```
 
-Rode cada jornada com uma API de teste recém-iniciada: os dados que uma jornada cria (etapas, pré-requisitos) podem bloquear passos da seguinte. Cada jornada tem um script npm: `test:ui`, `test:release`, `test:deadlines`, `test:progress`, `test:games`, `test:corrections`, `test:assessments`, `test:attachments`, `test:manager`, `test:profile` e `test:batch`.
+Rode cada jornada com uma API de teste recém-iniciada: os dados que uma jornada cria (etapas, pré-requisitos) podem bloquear passos da seguinte. Cada jornada tem um script npm: `test:ui`, `test:release`, `test:deadlines`, `test:progress`, `test:games`, `test:corrections`, `test:assessments`, `test:attachments`, `test:manager`, `test:profile`, `test:batch`, `test:dashboards` e `test:achievements`.
 
 Alternativamente, `PLAYWRIGHT_PACKAGE` pode apontar para uma instalação de Playwright já disponível, e `PLAYWRIGHT_BROWSERS_PATH` para seus navegadores. Esses caminhos são configuração da máquina, não devem ser versionados.
 
@@ -192,3 +192,13 @@ BASE_URL=http://127.0.0.1:3027 node frontend/tests/dashboards_journey.cjs
 ```
 
 A jornada cria e depois remove um jogo de teste; confere a melhor nota, o uso da primeira tentativa para as questões, os gráficos nos dois temas, a largura no celular e os filtros do gerente. Disponível como `npm run test:dashboards`.
+
+## Novas conquistas
+
+`test_achievements.py` verifica os dez nomes, metas por jogos diferentes, primeira tentativa, ordem das reprovações e aprovações, metade da trilha, eixos vazios, conquistas existentes sem aviso, confirmação parcial e idempotente, permissões e migração 11 sem perda de estado.
+
+```bash
+BASE_URL=http://127.0.0.1:3027 node frontend/tests/achievements_journey.cjs
+```
+
+A jornada cria uma conta e dois jogos no banco descartável. Verifica o popup conjunto, a tentativa de confirmação após uma falha temporária, a lista de dez conquistas e a ausência do mesmo aviso em outro navegador. Disponível como `npm run test:achievements`.
