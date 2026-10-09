@@ -977,7 +977,7 @@ function DashboardContent() {
             {nodes.length === 0 && !showNodeForm ? (
               <div className="text-center py-16 text-muted-foreground">
                 <Compass className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                <p className="text-sm">Nenhum nó de trilha cadastrado ainda. Clique em "Novo Nó" para começar.</p>
+                <p className="text-sm">Nenhum nó de trilha cadastrado ainda. Clique em “Novo Nó” para começar.</p>
               </div>
             ) : nodes.length > 0 ? (
               <div className="space-y-8">

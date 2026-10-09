@@ -12,7 +12,11 @@
     "test:release": "node tests/node_release.cjs",
     "test:deadlines": "node tests/deadlines.cjs",
     "test:progress": "node tests/progress_journey.cjs",
-    "test:games": "node tests/games_journey.cjs"
+    "test:games": "node tests/games_journey.cjs",
+    "test:corrections": "node tests/corrections_journey.cjs",
+    "test:assessments": "node tests/assessments_journey.cjs",
+    "test:attachments": "node tests/submission_attachments_journey.cjs",
+    "test:manager": "node tests/manager_journey.cjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -72,6 +76,9 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.5",
+    "playwright": "1.57.0",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
     "tw-animate-css": "1.3.3",
