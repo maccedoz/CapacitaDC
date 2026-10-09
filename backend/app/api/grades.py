@@ -7,13 +7,13 @@ import uuid
 from typing import List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, File
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app import models, schemas
 from app.auth import get_current_user, get_current_staff
-from app.services import access, blob_storage, material_files
-from app.services.activity_service import axis_metrics_by_user, submission_to_out
+from app.services import access, blob_storage, grading, material_files
+from app.services.activity_service import axis_metrics_by_user, recompute_users_grades, submission_to_out
 from app.services.roles import MEMBER_AXES, normalize_axis
 
 router = APIRouter()
@@ -250,9 +250,36 @@ def list_submissions(
     if user_id is not None:
         query = query.filter(models.ActivitySubmission.user_id == user_id)
 
-    rows = query.order_by(
+    rows = query.options(
+        selectinload(models.ActivitySubmission.graded_by),
+        selectinload(models.ActivitySubmission.attachments),
+    ).order_by(
         models.ActivitySubmission.grade.is_(None).desc(),
         models.ActivitySubmission.submitted_at.desc(),
     ).limit(limit).offset(offset).all()
     return [submission_to_out(submission, user=user, activity=activity)
             for submission, activity, user in rows]
+
+
+@router.post("/submissions/grade-batch", response_model=List[schemas.ActivitySubmissionOut])
+def grade_submissions_batch(
+    batch: schemas.SubmissionBatchGrade,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_staff),
+):
+    """Lança a mesma nota em várias entregas. Tudo ou nada: se alguma não puder ser
+    corrigida por quem pede, nenhuma muda. A média de cada pessoa é recalculada uma vez."""
+    ids = list(dict.fromkeys(batch.submission_ids))
+    submissions = (db.query(models.ActivitySubmission)
+                   .options(selectinload(models.ActivitySubmission.activity), selectinload(models.ActivitySubmission.user))
+                   .filter(models.ActivitySubmission.id.in_(ids)).all())
+    if len(submissions) != len(ids):
+        raise HTTPException(status_code=404, detail="Uma das entregas não foi encontrada.")
+    for submission in submissions:
+        grading.ensure_can_grade(current_user, submission.activity, submission)
+    for submission in submissions:
+        grading.apply_grade(db, current_user, submission.activity, submission, batch.grade, batch.feedback, batch=True)
+    recompute_users_grades(db, [submission.user_id for submission in submissions])
+    db.commit()
+    order = {submission_id: index for index, submission_id in enumerate(ids)}
+    return [submission_to_out(submission) for submission in sorted(submissions, key=lambda item: order[item.id])]

@@ -102,6 +102,9 @@ export interface ActivitySubmissionOut {
   activity_title?: string | null
   activity_weight?: number | null
   activity_eixo?: string | null
+  /** Quem lançou a nota atual, e quando. */
+  graded_by_name?: string | null
+  graded_at?: string | null
 }
 
 export interface SubmissionQueueFilters {

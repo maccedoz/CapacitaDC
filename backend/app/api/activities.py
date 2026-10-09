@@ -16,6 +16,7 @@ from app.database import get_db
 from app import models, schemas
 from app.auth import get_current_user, get_current_staff
 from app.services import blob_storage, access
+from app.services import audit, grading
 from app.services.roles import STAFF
 from app.services.node_service import blocked_activity_ids, lock_user
 from app.services.assessment_service import validate_settings, effective_grade
@@ -527,6 +528,9 @@ def delete_submission(
         raise HTTPException(status_code=403, detail="Organizadores só podem excluir entregas de trainees.")
 
     user_id = submission.user_id
+    audit.record(db, current_user, "submission.delete", entity_type="submission", entity_id=submission.id,
+                 entity_name=activity.title, eixo=activity.eixo, target=submission.user,
+                 details={"nota": submission.grade, "anexos": len(submission.attachments)})
     for attachment in list(submission.attachments):
         blob_storage.delete(attachment.storage_key)
         db.delete(attachment)
@@ -569,12 +573,8 @@ def grade_submission(
     ).first()
     if not submission:
         raise HTTPException(status_code=404, detail="Submissão não encontrada")
-    access.ensure_user_access(current_user, submission.user)
-    if current_user.type == "organizador" and (not submission.user or submission.user.type != "trainee"):
-        raise HTTPException(status_code=403, detail="Organizadores só podem corrigir entregas de trainees.")
-
-    submission.grade = grade_data.grade
-    submission.feedback = grade_data.feedback or ""
+    grading.ensure_can_grade(current_user, activity, submission)
+    grading.apply_grade(db, current_user, activity, submission, grade_data.grade, grade_data.feedback)
     # A média ponderada da pessoa deriva das notas: recalcular junto evita que a
     # planilha e o perfil mostrem um número velho até alguém recarregar.
     recompute_user_grade(db, submission.user_id)

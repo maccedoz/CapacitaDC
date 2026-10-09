@@ -388,6 +388,8 @@ class ActivitySubmissionOut(BaseModel):
     activity_title: Optional[str] = None
     activity_weight: Optional[float] = None
     activity_eixo: Optional[str] = None
+    graded_by_name: Optional[str] = None  # quem lançou a nota atual
+    graded_at: Optional[UtcInstantOut] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -444,6 +446,11 @@ class SubmissionCreate(BaseModel):
 class SubmissionGrade(BaseModel):
     grade: float = Field(ge=0, le=10)
     feedback: Optional[str] = ""
+
+
+class SubmissionBatchGrade(SubmissionGrade):
+    """A mesma nota (e o mesmo feedback, se houver) para várias entregas de uma vez."""
+    submission_ids: List[str] = Field(min_length=1, max_length=200)
 
 
 # --- Profile & Grades Schemas ---

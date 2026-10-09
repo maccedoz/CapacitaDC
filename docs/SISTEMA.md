@@ -77,6 +77,12 @@ O prazo fecha as entregas e o envio de anexos a partir do instante marcado. As l
 4. Digite a **nota de 0 a 10**, acrescente feedback e salve. Uma nota zero é válida.
 5. A média da pessoa é recalculada e a planilha de notas atualiza. No filtro de pendentes, a entrega corrigida sai da fila.
 
+Salvar uma nota não recarrega a fila: a entrega corrigida sai dos pendentes e o que estiver digitado nas outras continua lá. Cada entrega corrigida mostra quem lançou a nota atual e quando ("corrigida por Fulano em 10/10, 14:32").
+
+**Correção em lote:** marque as entregas (ou "Selecionar todas da página"), informe uma nota e, se quiser, um feedback comum, e confirme. É tudo ou nada: se alguma entrega não puder ser corrigida por quem pede, nenhuma muda. A média de cada pessoa é recalculada uma vez (`POST /api/submissions/grade-batch`).
+
+**Atalhos de teclado** (botão **Atalhos** ou `?`), na ordem da tela: `Enter` no campo de nota salva e vai para a próxima; `Ctrl+Enter` faz o mesmo no feedback; `J`/`K` vão para a próxima/anterior sem salvar; `X` marca para o lote; `O` abre o anexo ou link; `F` vai para o feedback; `Esc` volta do feedback para a nota. O campo de nota só aceita números, então as letras funcionam ali como atalhos; no feedback, texto livre, valem só `Ctrl+Enter` e `Esc`.
+
 A mesma correção também pode ser feita na lista de envios dentro de uma atividade. O administrador acompanha membros e trainees; o organizador só recebe na fila os envios de trainees em atividades que pode gerenciar; o gerente, os envios de membros do próprio eixo em atividades desse eixo — estar numa atividade do eixo não basta — e os de trainees, como o organizador.
 
 Ao reenviar conteúdo diferente, a entrega volta a pendente, e a melhor nota das entregas anteriores (`previous_grade`) continua valendo na média até a nova correção; vale a maior entre ela e a nova nota. Corrigir de novo a mesma entrega substitui a nota dela, para desfazer um lançamento errado. Repetir a mesma entrega não duplica seu registro nem remove uma correção sem mudança no conteúdo.
