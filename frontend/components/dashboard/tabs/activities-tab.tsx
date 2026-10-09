@@ -44,13 +44,14 @@ export function ActivitiesTab() {
     } catch (e: any) { alert(e.message || "Erro ao criar atividade") }
   }
 
-  const handleSaveEditActivity = async (activityId: string, form: ActivityFormValues) => {
+  const handleSaveEditActivity = async (act: Activity, form: ActivityFormValues) => {
     try {
-      await updateActivity(activityId, {
+      await updateActivity(act.id, {
         title: form.title,
         description: form.description,
         accepts_file: form.accepts_file,
-        deadline: deadlineIso(form.deadline),
+        // Na trilha, o prazo pertence à etapa: o formulário não o envia.
+        ...(act.deadline_from_trail ? {} : { deadline: deadlineIso(form.deadline) }),
         material_id: form.material_id || null,
         weight: Number(form.weight),
         allow_retry: form.allow_retry, is_required: form.is_required,
@@ -185,7 +186,8 @@ export function ActivitiesTab() {
                       {editActivityId === act.id && (
                         <CardContent className="pt-0">
                           <ActivityForm mode="edit" initial={editValues(act)} {...formProps}
-                            onCancel={() => setEditActivityId(null)} onSubmit={form => handleSaveEditActivity(act.id, form)} />
+                            trailDeadline={act.deadline_from_trail ? { deadline: act.deadline ?? null } : undefined}
+                            onCancel={() => setEditActivityId(null)} onSubmit={form => handleSaveEditActivity(act, form)} />
                         </CardContent>
                       )}
 

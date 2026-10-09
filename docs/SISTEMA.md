@@ -10,6 +10,8 @@
 | Membro | Consome conteúdo comercial, joga, entrega atividades e acompanha seus resultados. |
 | Trainee | Consome conteúdo para trainees, joga, entrega atividades e acompanha seus resultados. |
 
+Membros são cadastrados só pela gestão e sempre com e-mail terminado em `@infojr.com.br` (a API recusa outro domínio com 422 ao cadastrar, ao trocar o e-mail ou ao mudar alguém para membro). Membros antigos de outro domínio continuam editáveis enquanto o e-mail não for alterado.
+
 **PlugInfo é o nome da organização/papel, não um eixo de conteúdo.** Os eixos comerciais são Vendas, Conexões e Experiência do Consumidor. `trainee` identifica o público da capacitação inicial; `all` é o alcance compartilhado de um conteúdo, não outro eixo comercial. O organizador gerencia conteúdo de trainees; conteúdo compartilhado `all` é administrado pelo administrador.
 
 A API verifica permissões também nas operações por ID. Ocultar botões na interface não é a única proteção. Contas administrativas usam a pré-visualização dos jogos, que não gera pontos.
@@ -46,7 +48,7 @@ Usuários antigos podem ter o eixo gravado pelo nome de exibição ("Vendas", "C
 
 ### Preparar a atividade
 
-Na aba **Atividades**, cadastre título, descrição, público, exigência de arquivo/link, prazo opcional, material de apoio opcional e as regras de avaliação: **Permitir repetição**, **Obrigatória (vale nota)** e **Peso da nota**. As mesmas três opções existem nas etapas de jogo, na criação e em **Editar nó**; numa etapa de atividade elas vêm da atividade vinculada.
+Na aba **Atividades**, cadastre título, descrição, público, exigência de arquivo/link, material de apoio opcional e as regras de avaliação: **Permitir repetição**, **Obrigatória (vale nota)** e **Peso da nota**. As mesmas três opções existem nas etapas de jogo, na criação e em **Editar nó**; numa etapa de atividade elas vêm da atividade vinculada.
 
 - Peso maior dá maior participação na média.
 - **Obrigatória exige peso maior que zero.** Uma atividade opcional não entra na média; ela ainda pode receber correção e feedback.
@@ -55,6 +57,17 @@ Na aba **Atividades**, cadastre título, descrição, público, exigência de ar
 - Arquivo exigido: a entrega precisa incluir uma URL. Atividade sem arquivo exigido aceita um comentário; entregas completamente vazias são rejeitadas.
 
 Atividades podem ser associadas a etapas da trilha. Uma entrega válida conclui a etapa correspondente no servidor; essa conclusão não depende de já existir uma nota e não atribui a bonificação dos jogos. A chamada de entrega informa o ID da etapa quando ocorre pela trilha.
+
+### Prazo
+
+**O prazo é único e definido pela etapa da trilha** (em **Editar nó**), não pela atividade:
+
+- Entrega pela trilha: vale o prazo da etapa usada. A mesma atividade em duas etapas pode fechar em momentos diferentes.
+- Entrega sem etapa (aba **Atividades** do participante): vale o prazo mais tardio entre as etapas vinculadas; se alguma não tem prazo, a atividade fica sem prazo.
+- Atividade fora da trilha: vale o prazo da própria atividade, editado no formulário da atividade.
+- **Fechar** (manual) continua fechando, antes de qualquer prazo.
+
+O prazo fecha as entregas e o envio de anexos a partir do instante marcado. As listagens devolvem o prazo efetivo (`deadline`), `effective_open` pela mesma regra e `deadline_from_trail`; no leitor da etapa, o prazo é o dela. Numa atividade da trilha, o formulário da gestão mostra "Prazo definido na trilha" em vez do campo.
 
 ### Corrigir uma entrega
 
@@ -103,7 +116,7 @@ O administrador pode liberar etapas imediatamente ou agendar a liberação. Part
 
 O agendamento usa o horário local do navegador, com o fuso indicado junto ao campo. A atualização automática preserva alterações ainda não salvas; durante o salvamento, novas edições também ficam preservadas e o botão impede envios duplicados. Campo, legenda e status usam a mesma interpretação de data. Se a consulta feita no horário de liberação falhar ou chegar atrasada, a tela volta a consultar automaticamente.
 
-Prazos de atividades e de nós seguem a mesma conversão: aparecem no horário local do navegador no painel, na trilha e na aba de atividades, e salvar a edição de uma atividade ou de um nó sem mexer no prazo mantém o mesmo horário.
+Prazos de atividades e de nós seguem a mesma conversão (sobre qual prazo vale, veja **Prazo** em Atividades): aparecem no horário local do navegador no painel, na trilha e na aba de atividades, e salvar a edição de uma atividade ou de um nó sem mexer no prazo mantém o mesmo horário.
 
 Em `PATCH /api/nodes/{id}/release`, `released_at` exige fuso explícito (por exemplo, `2030-01-02T14:00:00-03:00` ou `2030-01-02T17:00:00Z`); `null` ou omissão mantêm a liberação imediata quando `is_released` é verdadeiro. A mesma regra vale para `deadline` na criação e na edição de atividades e de nós. A API converte esses horários para UTC antes de gravar nas colunas existentes, que guardam UTC sem fuso, independentemente do fuso da conexão com o banco, e sempre responde com `Z`. Datas novas sem fuso retornam 422. Registros antigos continuam sendo interpretados como UTC, conforme a regra anterior; esta correção não migra nem desloca horários já armazenados.
 
@@ -150,6 +163,8 @@ Um rascunho nunca publicado exclui livremente. Um jogo publicado também pode se
 O servidor recebe respostas/decisões e calcula o resultado. Não aceita uma pontuação arbitrária calculada no navegador nem entrega o gabarito antes da avaliação. Os formatos da biblioteca são normalizados para até 100 pontos por etapa; vale o melhor resultado e só a melhora acrescenta pontos à pessoa. Repetir uma requisição de conclusão não pontua novamente.
 
 Com repetição permitida, a etapa só é concluída quando a melhor nota chega a **7**: abaixo disso, o resultado avisa a nota mínima, oferece **Tentar novamente** (sem limite de tentativas) e a etapa seguinte continua bloqueada. Uma tentativa pior depois da aprovação não reabre a etapa, e progressos concluídos antes desta regra continuam concluídos. Abrir o jogo de novo começa outra tentativa, e o resultado mostra a nota da tentativa e a melhor nota. Sem repetição, qualquer nota conclui a etapa. Sem repetição, a primeira tentativa concluída é definitiva: abrir de novo mostra o resultado, e uma tentativa em andamento quando a repetição for desligada não pode mais ser concluída.
+
+O prazo da etapa também encerra o jogo: depois dele não se inicia tentativa nem se conclui uma já aberta (inclusive para melhorar a nota), e decisões de cenário são recusadas com "O prazo desta etapa terminou." A melhor nota já obtida continua valendo, e um jogo sem repetição já concluído segue mostrando o resultado. O mesmo vale para quizzes antigos. A pré-visualização da gestão não é afetada.
 
 Cenários salvam as decisões no servidor. Os demais formatos mantêm as escolhas em andamento no navegador para retomada da tentativa; a avaliação é enviada ao concluir. Essa retomada local depende do mesmo navegador. Quizzes antigos continuam funcionando pelo fluxo legado de respostas avaliadas no servidor, com os pesos originais.
 
@@ -225,6 +240,8 @@ As migrações rodam na inicialização da API e registram versões em `schema_m
 4. Garantia da coluna de peso, backup das notas manuais antigas em `nota_rotacao_backup_v4` e recálculo das médias pelas entregas corrigidas.
 5. Lista de links e tabela de anexos das entregas.
 6. Repetição, obrigatoriedade e peso nas atividades e etapas de jogo, nota de 0 a 10 no progresso dos jogos e melhor nota anterior nas entregas. Atividades com peso 0 passam a opcionais; jogos já concluídos recebem a nota pelo melhor resultado registrado; as médias são recalculadas, com backup em `nota_rotacao_backup_v6`.
+
+A migração 9 passa o prazo para as etapas: guarda os prazos das atividades em `activity_deadline_backup_v9` e copia o prazo da atividade para cada etapa de atividade que não tinha prazo. Onde a etapa já tinha prazo, ele passa a valer, sem alteração de dados.
 
 O papel de gerente reaproveita as colunas `users.type` e `users.eixo` e não exige migração de dados: nomes de eixo antigos são normalizados na leitura e convertidos para o código na próxima gravação. A tabela `material_uploads` é criada na inicialização como as demais tabelas novas.
 

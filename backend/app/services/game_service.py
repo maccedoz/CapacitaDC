@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app import game_schemas as schemas, models
 from app.services import access
-from app.services.node_service import lock_progress_user
+from app.services.node_service import ensure_before_node_deadline, lock_progress_user
 
 
 def game_for_author(db, game_id, user, *, lock=False):
@@ -183,6 +183,8 @@ def begin_attempt(db, node_id, user):
         completed = db.query(models.GameAttempt).filter_by(user_id=user.id, node_id=node.id, status="completed").order_by(models.GameAttempt.completed_at.desc()).first()
         if completed:
             return attempt_to_out(completed)
+    # Depois do prazo da etapa não se abre nem se retoma tentativa; a melhor nota fica.
+    ensure_before_node_deadline(node)
     key = f"{user.id}:{node.id}"
     attempt = db.query(models.GameAttempt).filter(models.GameAttempt.active_key == key).first()
     if attempt is None:
@@ -213,6 +215,7 @@ def answer_scenario(db, attempt_id, user, answer):
         return attempt_to_out(attempt)
     if attempt.status != "in_progress":
         raise HTTPException(409, "A tentativa já foi concluída")
+    ensure_before_node_deadline(attempt.node)
     step = _scenario_step(attempt)
     if step is None or step["id"] != answer.step_id:
         raise HTTPException(400, "Responda o passo atual do cenário")
@@ -347,6 +350,7 @@ def complete_attempt(db: Session, attempt_id, user, payload):
     attempt, user = _attempt_for_user(db, attempt_id, user, lock=True)
     if attempt.status == "completed":
         return attempt_to_out(attempt)
+    ensure_before_node_deadline(attempt.node)
     fmt = attempt.revision.format
     expected = FORMAT_PAYLOAD[fmt]
     if payload.submitted_fields() - ({expected} if expected else set()):

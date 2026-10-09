@@ -91,7 +91,7 @@ class Client:
 DB = sys.argv[1] if len(sys.argv) > 1 else "./smoke.db"
 BASE = sys.argv[2] if len(sys.argv) > 2 else "http://127.0.0.1:3000"
 RUN = time.strftime("%H%M%S")
-ADMIN, MEMBER, RENAMED = f"admin{RUN}@infoej.com.br", f"membro{RUN}@example.com", f"membro{RUN}b@example.com"
+ADMIN, MEMBER, RENAMED = f"admin{RUN}@infoej.com.br", f"membro{RUN}@infojr.com.br", f"membro{RUN}b@infojr.com.br"
 client = Client(BASE)
 passed, failed = [], []
 

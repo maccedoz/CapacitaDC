@@ -6,6 +6,7 @@ import { AssessmentSettings } from "@/components/activities/assessment-settings"
 import type { ContentItem } from "@/components/dashboard/content-card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { asUtcDate } from "@/lib/datetime"
 import type { MemberAxis } from "@/lib/roles"
 
 export interface ActivityFormValues {
@@ -33,12 +34,14 @@ interface ActivityFormProps {
   axis: MemberAxis | null
   axisName: string
   isOrg: boolean
+  /** Presente quando a atividade está numa etapa da trilha: o prazo vem de lá e não é editado aqui. */
+  trailDeadline?: { deadline: string | null }
   onCancel: () => void
   onSubmit: (values: ActivityFormValues) => Promise<void>
 }
 
 /** Formulário de atividade, usado na criação (cartão próprio) e na edição (dentro do cartão da atividade). */
-export function ActivityForm({ mode, initial, contents, axis, axisName, isOrg, onCancel, onSubmit }: ActivityFormProps) {
+export function ActivityForm({ mode, initial, contents, axis, axisName, isOrg, trailDeadline, onCancel, onSubmit }: ActivityFormProps) {
   const [form, setForm] = useState(initial)
   const create = mode === "create"
   const field = create ? "bg-secondary border-border" : "bg-secondary border-border text-xs h-8"
@@ -126,7 +129,16 @@ export function ActivityForm({ mode, initial, contents, axis, axisName, isOrg, o
 
         {create && assessment}
 
-        {!create && (
+        {!create && trailDeadline && (
+          <p className="text-xs text-muted-foreground flex items-center gap-1 sm:col-span-2">
+            <Clock className="h-3 w-3" />
+            {trailDeadline.deadline
+              ? `Prazo definido na trilha: ${asUtcDate(trailDeadline.deadline).toLocaleString("pt-BR")}`
+              : "Prazo definido na trilha (sem prazo)"}
+          </p>
+        )}
+
+        {!create && !trailDeadline && (
           <div className="space-y-1 sm:col-span-2">
             <label className="text-xs text-muted-foreground flex items-center gap-1"><Clock className="h-3 w-3" /> Prazo</label>
             <Input
