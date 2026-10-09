@@ -30,7 +30,12 @@ def person_scope(user: models.User | None) -> str | None:
 
 
 def changes(before: dict[str, Any], after: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Só os campos que mudaram, como {campo: {"antes": ..., "depois": ...}}."""
+    """Só os campos que mudaram, como {campo: {"antes": ..., "depois": ...}}.
+
+    A comparação usa os valores já como o JSON guarda: um prazo lido do banco (UTC
+    sem fuso) e o mesmo instante vindo da requisição (com fuso) não contam como mudança.
+    """
+    before, after = _plain(before), _plain(after)
     return {field: {"antes": before.get(field), "depois": value}
             for field, value in after.items() if before.get(field) != value}
 

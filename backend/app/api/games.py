@@ -9,9 +9,14 @@ from sqlalchemy.orm import Session
 from app import game_schemas as schemas, models
 from app.auth import get_current_staff, get_current_user
 from app.database import get_db
-from app.services import access, game_service
+from app.services import access, audit, game_service
 
 router = APIRouter()
+
+
+def _record_game(db: Session, user: models.User, action: str, game: models.Game, details=None) -> None:
+    audit.record(db, user, action, entity_type="game", entity_id=game.id, entity_name=game.title,
+                 eixo=game.eixo, details=details)
 
 
 @router.get("/games/", response_model=list[schemas.GameOut], include_in_schema=False)
@@ -31,6 +36,8 @@ def create_game(payload: schemas.GameCreate, db: Session = Depends(get_db), user
     now = datetime.now(timezone.utc)
     game = models.Game(**payload.model_dump(), created_by=user.id, created_at=now, updated_at=now)
     db.add(game)
+    db.flush()
+    _record_game(db, user, "game.create", game)
     db.commit()
     db.refresh(game)
     return game_service.game_to_out(game)
@@ -48,9 +55,17 @@ def update_game(game_id: str, payload: schemas.GameUpdate, db: Session = Depends
         access.ensure_node_eixo_access(user, payload.eixo)
         if payload.eixo != game.eixo and game.revisions:
             raise HTTPException(409, "Um jogo publicado mantém o eixo; duplique para usar em outro eixo")
+    # O histórico registra título e eixo; o conteúdo do rascunho entra só como "editado".
+    before = {"título": game.title, "eixo": game.eixo}
+    content_before = (game.instructions, game.format, game.config)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(game, field, value)
     game.updated_at = datetime.now(timezone.utc)
+    details = audit.changes(before, {"título": game.title, "eixo": game.eixo})
+    if (game.instructions, game.format, game.config) != content_before:
+        details["rascunho"] = "editado"
+    if details:
+        _record_game(db, user, "game.update", game, details)
     db.commit()
     db.refresh(game)
     return game_service.game_to_out(game)
@@ -81,6 +96,7 @@ def delete_game(game_id: str, db: Session = Depends(get_db), user: models.User =
         ).count()
         if attempts:
             raise HTTPException(409, "Este jogo tem tentativas registradas e não pode ser excluído.")
+    _record_game(db, user, "game.delete", game, {"versões": len(revision_ids)} if revision_ids else None)
     db.delete(game)
     db.commit()
     return {"detail": "Jogo excluído com sucesso"}
@@ -94,6 +110,8 @@ def duplicate_game(game_id: str, db: Session = Depends(get_db), user: models.Use
                        eixo=original.eixo, format=original.format, config=deepcopy(original.config),
                        created_by=user.id, created_at=now, updated_at=now)
     db.add(game)
+    db.flush()
+    _record_game(db, user, "game.duplicate", game, {"origem": original.title})
     db.commit()
     db.refresh(game)
     return game_service.game_to_out(game)

@@ -246,6 +246,12 @@ Rotas principais (consulte `/docs` na API para o contrato completo):
 
 As coleções aceitam as formas de URL utilizadas no frontend sem redirecionar a autenticação. As sessões novas usam ID de usuário estável no token. Respostas 401 significam sessão inválida, 403 falta de permissão, 422 erro de validação e 5xx falha do servidor. Erro temporário de `/auth/me` não apaga a sessão. A interface mostra o motivo de uma recusa 403 e confere a sessão de novo (também ao voltar para a aba); se papel ou eixo mudaram, o painel se recria sem manter dados do escopo anterior.
 
+## Histórico de alterações
+
+A aba **Histórico** registra ações da gestão em correções, atividades, etapas, pessoas, materiais e jogos, com autor, data e campos alterados. O registro é salvo na mesma transação da ação. Nomes e eixos ficam guardados mesmo depois de exclusões; senhas nunca são registradas.
+
+O administrador vê tudo; gerentes veem seu eixo e o PlugInfo; organizadores veem o PlugInfo. A lista é paginada no servidor (`GET /api/audit`) e permite filtrar por autor, grupo de ação e período. O período corresponde aos dias no fuso do navegador, com datas armazenadas em UTC. Ações anteriores à implementação não são reconstruídas.
+
 ## Migrações e manutenção
 
 As migrações rodam na inicialização da API e registram versões em `schema_migrations`:
@@ -258,6 +264,8 @@ As migrações rodam na inicialização da API e registram versões em `schema_m
 6. Repetição, obrigatoriedade e peso nas atividades e etapas de jogo, nota de 0 a 10 no progresso dos jogos e melhor nota anterior nas entregas. Atividades com peso 0 passam a opcionais; jogos já concluídos recebem a nota pelo melhor resultado registrado; as médias são recalculadas, com backup em `nota_rotacao_backup_v6`.
 
 A migração 9 passa o prazo para as etapas: guarda os prazos das atividades em `activity_deadline_backup_v9` e copia o prazo da atividade para cada etapa de atividade que não tinha prazo. Onde a etapa já tinha prazo, ele passa a valer, sem alteração de dados.
+
+A migração 10 cria `audit_logs` e acrescenta autor e data da correção às entregas (`graded_by` e `graded_at`). Correções antigas continuam sem autor identificado.
 
 O papel de gerente reaproveita as colunas `users.type` e `users.eixo` e não exige migração de dados: nomes de eixo antigos são normalizados na leitura e convertidos para o código na próxima gravação. A tabela `material_uploads` é criada na inicialização como as demais tabelas novas.
 

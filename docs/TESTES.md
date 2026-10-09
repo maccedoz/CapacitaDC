@@ -172,6 +172,8 @@ Usa a conta `primeiro-acesso@example.com`, a única do servidor de teste que com
 
 ## Correção em lote e atalhos
 
+`test_audit.py` verifica o registro das ações da gestão, preservação dos nomes após exclusão, ausência de senhas, permissões por eixo, filtros por dia local e paginação do histórico.
+
 ```bash
 BASE_URL=http://127.0.0.1:3017 ADMIN_EMAIL=admin@example.com TRAINEE_EMAIL=trainee@example.com \
   PASSWORD=qa-test-password node frontend/tests/batch_grading_journey.cjs

@@ -1,4 +1,4 @@
-from typing import Annotated, Optional, List, Literal
+from typing import Annotated, Any, Optional, List, Literal
 from datetime import datetime, timezone
 from pydantic import AfterValidator, BaseModel, EmailStr, ConfigDict, Field, field_validator, model_validator
 
@@ -496,3 +496,33 @@ class GradeRow(BaseModel):
     nodes_total: int = 0
     activities_submitted: int = 0
     activities_graded: int = 0
+
+
+# --- Histórico de alterações ---
+class AuditLogOut(BaseModel):
+    id: str
+    created_at: UtcInstantOut
+    actor_id: Optional[str] = None
+    actor_name: str
+    action: str
+    entity_type: str
+    entity_id: Optional[str] = None
+    entity_name: Optional[str] = None
+    eixo: Optional[str] = None
+    target_user_id: Optional[str] = None
+    target_user_name: Optional[str] = None
+    details: Optional[dict[str, Any]] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AuditActorOut(BaseModel):
+    id: str
+    name: str
+
+
+class AuditPage(BaseModel):
+    items: List[AuditLogOut]
+    total: int
+    # Quem aparece no escopo de quem consulta, para o filtro "quem fez".
+    actors: List[AuditActorOut]
