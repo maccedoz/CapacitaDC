@@ -26,6 +26,28 @@ ALLOWED_EXTENSIONS = {
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 MATERIAL_BLOB_PREFIX = "materials"
 
+# Assinaturas (primeiros bytes) esperadas para cada extensão. Os formatos do
+# Office novos são ZIP; os antigos (.doc/.xls/.ppt) são OLE2. TXT e CSV não têm
+# assinatura e não são conferidos.
+_ZIP = (b"PK\x03\x04", b"PK\x05\x06")
+_OLE2 = (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",)
+FILE_SIGNATURES = {
+    "pdf": (b"%PDF-",),
+    "png": (b"\x89PNG\r\n\x1a\n",),
+    "jpg": (b"\xff\xd8\xff",),
+    "jpeg": (b"\xff\xd8\xff",),
+    "gif": (b"GIF87a", b"GIF89a"),
+    "zip": _ZIP, "docx": _ZIP, "xlsx": _ZIP, "pptx": _ZIP,
+    "doc": _OLE2, "xls": _OLE2, "ppt": _OLE2,
+}
+
+
+def matches_signature(ext: str, contents: bytes) -> bool:
+    if ext == "webp":
+        return contents[:4] == b"RIFF" and contents[8:12] == b"WEBP"
+    signatures = FILE_SIGNATURES.get(ext)
+    return signatures is None or contents.startswith(signatures)
+
 
 @router.post("/upload")
 async def upload_file(
@@ -43,6 +65,10 @@ async def upload_file(
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="Arquivo muito grande. Limite: 20 MB.")
+    if not matches_signature(ext, contents):
+        raise HTTPException(
+            status_code=400, detail=f"O conteúdo do arquivo não corresponde a um .{ext}."
+        )
 
     safe_name = f"{uuid.uuid4().hex}_{name.replace(' ', '_')}"
     pathname = blob_storage.upload(

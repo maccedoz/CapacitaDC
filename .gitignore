@@ -19,7 +19,7 @@ frontend/.next/
 frontend/.next-*/
 frontend/out/
 
-# Uploads: a pasta é criada na inicialização por backend/app/main.py
+# Uploads locais antigos (hoje os arquivos ficam no Vercel Blob)
 backend/uploads/
 backend/submission_uploads/
 

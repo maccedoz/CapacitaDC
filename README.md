@@ -46,7 +46,7 @@ Pré-requisitos: Python 3.12, Node.js compatível com o Next.js instalado, npm e
    .venv/bin/python -m app.seed
    ```
 
-   O seed atual cria `admin@infojr.com.br` com senha `admin123` se essa conta não existir. Essas credenciais são apenas para desenvolvimento; altere-as antes de disponibilizar o sistema. O cadastro público sempre cria um trainee.
+   O seed cria `admin@infojr.com.br` se essa conta não existir, com a senha de `SEED_ADMIN_PASSWORD`. Sem essa variável, ele gera uma senha aleatória e a mostra uma única vez; o `./dev.sh` usa `admin123` para o desenvolvimento local. Não há cadastro público: as demais pessoas são cadastradas pela gestão, no painel.
 
 5. Inicie o frontend:
 
@@ -69,10 +69,13 @@ Ele aguarda a API e a página de login responderem antes de solicitar a abertura
 | `JWT_SECRET_KEY` | API / `backend/.env` | Chave de assinatura das sessões. |
 | `JWT_ALGORITHM` | API | Padrão `HS256`. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | API | Padrão 1440 minutos. |
+| `BLOB_READ_WRITE_TOKEN` | API / `backend/.env` | Token do Vercel Blob privado onde ficam documentos e anexos. Sem ele, os uploads falham. |
+| `CORS_ORIGINS` | API, opcional | Origens extras liberadas no CORS, separadas por vírgula. Vazio (padrão) desliga o CORS. |
+| `SEED_ADMIN_PASSWORD` | Seed, opcional | Senha do admin criado pelo seed. |
 | `API_BACKEND_URL` | Servidor Next.js | Endereço da API; padrão `http://127.0.0.1:8000`. |
 | `NEXT_DIST_DIR` | Servidor Next.js, opcional | Cache de compilação separado para testes; padrão `.next`. |
 
-O navegador chama caminhos relativos `/api/...` e `/uploads/...`. O Next.js encaminha essas requisições para `API_BACKEND_URL`. Essa variável é lida na configuração do servidor, não é uma variável `NEXT_PUBLIC_`; ao alterá-la em hospedagem, gere um novo build/deploy.
+O navegador chama caminhos relativos `/api/...`. O Next.js encaminha essas requisições para `API_BACKEND_URL`. Essa variável é lida na configuração do servidor, não é uma variável `NEXT_PUBLIC_`; ao alterá-la em hospedagem, gere um novo build/deploy.
 
 ## Build e hospedagem
 
@@ -84,7 +87,7 @@ npm run build
 npm run start
 ```
 
-Para hospedar o frontend, configure o diretório raiz como `frontend`, use o preset Next.js e informe `API_BACKEND_URL` apontando para a API acessível pelo servidor da hospedagem. A API Python e o PostgreSQL precisam de execução própria. Os materiais públicos ficam em `backend/uploads/` e os anexos privados de entregas em `backend/submission_uploads/`. Ambas as pastas exigem armazenamento persistente no host da API.
+Para hospedar o frontend, configure o diretório raiz como `frontend`, use o preset Next.js e informe `API_BACKEND_URL` apontando para a API acessível pelo servidor da hospedagem. A API Python e o PostgreSQL precisam de execução própria. Documentos dos materiais e anexos das entregas ficam num Vercel Blob privado (`BLOB_READ_WRITE_TOKEN`), não em disco. `GET /api/health` confere se a API alcança o banco.
 
 Antes de atualizar um banco existente, faça backup e confira as migrações descritas na documentação. O seed de desenvolvimento não deve ser executado automaticamente em produção.
 
