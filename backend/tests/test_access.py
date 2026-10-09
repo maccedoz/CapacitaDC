@@ -24,14 +24,69 @@ class AccessTests(unittest.TestCase):
     def tearDown(self):
         self.api.tearDown()
 
-    def test_public_registration_never_grants_privileged_role(self):
-        for email in ['admin@infoej.com.br', 'organizador@infoej.com.br', 'membro@infoej.com.br']:
-            with self.subTest(email=email), patch.object(auth, 'get_password_hash', return_value='test-only'):
-                status, result = self.request('POST', '/api/auth/register', {
-                    'name': 'Cadastro público', 'email': email, 'cargo': 'Administrador', 'password': 'test-only',
-                }, role=None)
-            self.assertEqual(status, 200)
-            self.assertEqual(result['type'], 'trainee')
+    def test_there_is_no_public_registration(self):
+        status, _ = self.request('POST', '/api/auth/register', {
+            'name': 'Cadastro público', 'email': 'novo@example.com', 'cargo': 'Administrador', 'password': 'test-only',
+        }, role=None)
+        self.assertEqual(status, 404)
+        with self.api.sessions() as db:
+            self.assertIsNone(db.query(models.User).filter(models.User.email == 'novo@example.com').first())
+
+    def login(self, email, password):
+        return self.request('POST', '/api/auth/login', {'email': email, 'password': password}, role=None)
+
+    def test_five_wrong_passwords_lock_the_login_for_fifteen_minutes(self):
+        with self.api.sessions() as db:
+            db.get(models.User, 'membro').password_hash = auth.get_password_hash('senha-certa')
+            db.commit()
+        for attempt in range(4):
+            status, result = self.login('membro@example.com', 'errada')
+            self.assertEqual(status, 400, (attempt, result))
+        status, result = self.login('membro@example.com', 'errada')
+        self.assertEqual(status, 429, result)
+        self.assertIn('15 minutos', result['detail'])
+        # Bloqueado, nem a senha certa entra.
+        status, result = self.login('membro@example.com', 'senha-certa')
+        self.assertEqual(status, 429, result)
+        with self.api.sessions() as db:
+            user = db.get(models.User, 'membro')
+            self.assertEqual(user.failed_login_attempts, 0)
+            user.locked_until = datetime.now(timezone.utc) - timedelta(seconds=1)
+            db.commit()
+        status, result = self.login('membro@example.com', 'senha-certa')
+        self.assertEqual(status, 200, result)
+        with self.api.sessions() as db:
+            user = db.get(models.User, 'membro')
+            self.assertEqual((user.failed_login_attempts, user.locked_until), (0, None))
+
+    def test_successful_login_resets_the_failure_count(self):
+        with self.api.sessions() as db:
+            db.get(models.User, 'membro').password_hash = auth.get_password_hash('senha-certa')
+            db.commit()
+        for _ in range(4):
+            self.login('membro@example.com', 'errada')
+        self.assertEqual(self.login('membro@example.com', 'senha-certa')[0], 200)
+        for _ in range(4):
+            self.assertEqual(self.login('membro@example.com', 'errada')[0], 400)
+
+    def test_unknown_email_gets_the_same_answer_as_a_wrong_password(self):
+        with patch.object(auth, 'verify_password', wraps=auth.verify_password) as verify:
+            status, result = self.login('ninguem@example.com', 'qualquer')
+        self.assertEqual((status, result['detail']), (400, 'Email ou senha incorretos'))
+        # A senha é conferida contra um hash fictício, para o tempo de resposta não denunciar o e-mail.
+        verify.assert_called_once()
+
+    def test_passwords_need_six_characters_and_are_required_on_creation(self):
+        base = {'name': 'Novo', 'email': 'novo@example.com', 'cargo': 'Trainee', 'type': 'trainee'}
+        self.assertEqual(self.request('POST', '/api/users', base)[0], 422)
+        self.assertEqual(self.request('POST', '/api/users', {**base, 'password': '12345'})[0], 422)
+        status, created = self.request('POST', '/api/users', {**base, 'password': '123456'})
+        self.assertEqual(status, 200, created)
+        path = f"/api/users/{created['id']}"
+        self.assertEqual(self.request('PUT', path, {'password': 'curta'})[0], 422)
+        # Vazio mantém a senha atual, como no formulário de edição.
+        self.assertEqual(self.request('PUT', path, {'name': 'Renomeado', 'password': ''})[0], 200)
+        self.assertEqual(self.request('PUT', path, {'password': 'nova-senha'})[0], 200)
 
     def test_login_token_survives_email_change_and_legacy_token_works(self):
         with patch.object(auth, 'verify_password', return_value=True):

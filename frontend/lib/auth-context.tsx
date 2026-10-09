@@ -22,7 +22,6 @@ interface AuthContextType {
   user: User | null
   isLoading: boolean
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; user?: User }>
-  register: (name: string, cargo: string, email: string, password: string) => Promise<{ success: boolean; error?: string; user?: User }>
   logout: () => void
   refreshUser: () => Promise<void>
 }
@@ -117,35 +116,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const register = async (
-    name: string, 
-    cargo: string, 
-    email: string, 
-    password: string
-  ): Promise<{ success: boolean; error?: string; user?: User }> => {
-    try {
-      const response = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ name, cargo, email, password }),
-      })
-
-      if (response.ok) {
-        // Log in immediately after successful registration
-        return await login(email, password)
-      } else {
-        return { success: false, error: (await responseError(response)).message }
-      }
-    } catch (error) {
-      console.error("Erro de cadastro:", error)
-      return { success: false, error: "Erro de conexão com o servidor" }
-    }
-  }
-
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   )

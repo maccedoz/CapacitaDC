@@ -8,8 +8,8 @@ discovery (which collects `test*.py`).
     (cd frontend && API_BACKEND_URL=http://127.0.0.1:8021 npm run dev -- -p 3017 &)
     backend/.venv/bin/python backend/tests/live_smoke.py ./smoke.db http://127.0.0.1:3017
 
-The database path is used only to grant the test accounts their roles, which the
-public registration route deliberately refuses to do.
+The database path is used to create the test accounts, since there is no public
+registration route.
 
 check_upload() writes to real private Vercel Blob storage, so the uvicorn process
 also needs BLOB_READ_WRITE_TOKEN (or to run where OIDC is available) set in its
@@ -23,6 +23,11 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
+
+from passlib.context import CryptContext
+
+PASSWORD_HASH = CryptContext(schemes=["bcrypt"]).hash("senha-de-teste")
 
 
 class Response:
@@ -97,13 +102,15 @@ def check(label, condition, extra=""):
 
 
 def account(name, email, kind, eixo=None):
-    """Registers, then promotes in the database: the API never grants roles by email."""
-    registered = client.post("/api/auth/register", json={"name": name, "email": email, "cargo": name, "password": "senha-de-teste"})
+    """Creates the account straight in the database: there is no public registration."""
     if kind == "trainee":
-        check("cadastro público não concede perfil privilegiado",
-              registered.status_code == 200 and registered.json()["type"] == "trainee", registered.text[:200])
+        registered = client.post("/api/auth/register", json={"name": name, "email": email, "cargo": name, "password": "senha-de-teste"})
+        check("não há cadastro público", registered.status_code == 404, registered.text[:200])
     database = sqlite3.connect(DB)
-    database.execute("UPDATE users SET type=?, eixo=? WHERE email=?", (kind, eixo, email))
+    database.execute(
+        "INSERT INTO users (id, name, email, password_hash, cargo, type, eixo, photo, pontos_acumulados, failed_login_attempts)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, '', 0, 0)",
+        (str(uuid.uuid4()), name, email, PASSWORD_HASH, name, kind, eixo))
     database.commit()
     database.close()
     session = client.post("/api/auth/login", json={"email": email, "password": "senha-de-teste"})

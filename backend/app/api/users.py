@@ -77,7 +77,7 @@ def create_member(
         id=str(uuid.uuid4()),
         name=user_in.name,
         email=user_in.email,
-        password_hash=get_password_hash(user_in.password or "123456"),
+        password_hash=get_password_hash(user_in.password),
         cargo=cargo_label,
         type=user_in.type,
         eixo=eixo,
@@ -132,6 +132,7 @@ def update_trainee(
     ).first()
     if not trainee:
         raise HTTPException(status_code=404, detail="Trainee não encontrado")
+    access.ensure_user_access(current_user, trainee)
 
     if trainee_update.rotacao is not None:
         if trainee_update.rotacao not in [1, 2]:

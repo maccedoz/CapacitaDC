@@ -10,9 +10,8 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'Dashboard Comercial',
+  title: 'Capacita DC',
   description: 'Gestão de membros, trainees e conteúdos do setor comercial',
-  generator: 'v0.app',
   icons: {
     icon: [
       {

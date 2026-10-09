@@ -1,6 +1,6 @@
 from typing import Annotated, Optional, List, Literal
 from datetime import datetime, timezone
-from pydantic import AfterValidator, BaseModel, EmailStr, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, EmailStr, ConfigDict, Field, field_validator, model_validator
 
 Role = Literal["admin", "organizador", "gerente", "membro", "trainee"]
 
@@ -32,14 +32,11 @@ class UserBase(BaseModel):
     eixo: Optional[str] = None
     photo: Optional[str] = ""
 
-class UserCreate(UserBase):
-    password: Optional[str] = "123456"  # Default password for members created by admin
+MIN_PASSWORD_LENGTH = 6
 
-class UserRegister(BaseModel):
-    name: str
-    cargo: str
-    email: EmailStr
-    password: str
+
+class UserCreate(UserBase):
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH)
 
 class UserOut(UserBase):
     id: str
@@ -55,7 +52,14 @@ class UserUpdate(BaseModel):
     cargo: Optional[str] = None
     type: Optional[Role] = None
     eixo: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[str] = None  # vazio mantém a senha atual
+
+    @field_validator("password")
+    @classmethod
+    def password_long_enough(cls, value):
+        if value is not None and value.strip() and len(value) < MIN_PASSWORD_LENGTH:
+            raise ValueError(f"A senha precisa ter pelo menos {MIN_PASSWORD_LENGTH} caracteres.")
+        return value
 
 class TraineeUpdate(BaseModel):
     # A nota de rotação não entra aqui: ela é calculada a partir das atividades

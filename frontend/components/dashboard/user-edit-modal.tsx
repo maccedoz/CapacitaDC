@@ -110,7 +110,7 @@ export function UserEditModal({
     const rot = rotacao ? parseInt(rotacao) : undefined
     await onSave(isManager ? {
       // Só o que o gerente pode alterar; o servidor recusa o resto de qualquer forma.
-      // O cargo não vai: é texto livre no cadastro público e não muda aqui.
+      // O cargo não vai: contas antigas do extinto cadastro público têm texto livre nele, e ele não muda aqui.
       name: name.trim(),
       email: email.trim(),
       type: user.type,

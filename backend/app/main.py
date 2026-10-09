@@ -11,9 +11,14 @@ Business logic lives in app/services/*.py
 HTTP routing lives in app/api/*.py
 """
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+import logging
 
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+
+from app.config import settings
 from app.database import engine
 from app import models  # noqa: F401  (registra os modelos no Base antes das migrações)
 from app.api import auth, users, materials, nodes, activities, grades, games, gamification
@@ -22,17 +27,30 @@ from app.migrations import migrate
 # Ensure all tables exist (idempotent — safe to run every startup)
 migrate(engine)
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("capacita")
+
 app = FastAPI(title="Capacita DC API")
 
 # ── Middleware ────────────────────────────────────────────────────────────────
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# O navegador chama a API pela mesma origem (a Vercel roteia /api; no dev, o
+# Next faz proxy), então o CORS só é ligado para origens listadas no ambiente.
+cors_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
+if cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+@app.exception_handler(Exception)
+async def log_unhandled_error(request: Request, exc: Exception):
+    logger.exception("Erro não tratado em %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Erro interno do servidor."})
 
 
 @app.middleware("http")
@@ -48,6 +66,18 @@ async def no_store(request, call_next):
 # Uploaded files are served through app.api.grades (GET /api/uploads/{pathname})
 # and app.api.activities, both backed by private Vercel Blob storage — compute
 # here is stateless, so there is no local directory to mount.
+
+@app.get("/api/health", tags=["health"])
+def health():
+    """Confere se a API está no ar e alcança o banco."""
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("Health check: banco indisponível")
+        return JSONResponse(status_code=503, content={"status": "erro", "database": "indisponível"})
+    return {"status": "ok", "database": "ok"}
+
 
 app.include_router(auth.router,       prefix="/api/auth",       tags=["auth"])
 app.include_router(users.router,      prefix="/api/users",      tags=["users"])

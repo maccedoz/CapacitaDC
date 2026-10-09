@@ -37,6 +37,10 @@ class User(Base):
     nota_rotacao = Column(Float, nullable=True)
     pontos_acumulados = Column(Integer, default=0, nullable=False)
     rotacao = Column(Integer, nullable=True)  # 1 ou 2 — apenas para trainees
+    # Bloqueio de login após senhas erradas seguidas (o contador fica no banco
+    # porque a API roda em funções serverless, sem memória compartilhada).
+    failed_login_attempts = Column(Integer, default=0, nullable=False)
+    locked_until = Column(UTCDateTime, nullable=True)
 
     # Relationships
     node_progress = relationship("UserNodeProgress", back_populates="user", cascade="all, delete-orphan")

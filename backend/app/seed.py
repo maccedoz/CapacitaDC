@@ -1,7 +1,17 @@
+"""Cria o administrador inicial, se ainda não existir.
+
+A senha vem de SEED_ADMIN_PASSWORD. Sem ela, o script gera uma senha aleatória
+e a mostra uma única vez, ao criar o admin; ela nunca é impressa de novo.
+"""
+import os
+import secrets
 import uuid
+
 from app.database import engine, SessionLocal
 from app.models import Base, User
 from app.auth import get_password_hash
+
+ADMIN_EMAIL = "admin@infojr.com.br"
 
 
 def seed_db():
@@ -9,30 +19,31 @@ def seed_db():
     db = SessionLocal()
 
     try:
-        existing_admin = db.query(User).filter(User.email == "admin@infojr.com.br").first()
-        if not existing_admin:
-            print("Criando usuário admin...")
-            admin = User(
-                id=str(uuid.uuid4()),
-                name="Admin",
-                email="admin@infojr.com.br",
-                password_hash=get_password_hash("admin123"),
-                cargo="Administrador",
-                type="admin",
-                eixo=None,
-                nota_rotacao=None,
-                pontos_acumulados=0,
-                rotacao=None
-            )
-            db.add(admin)
-            db.commit()
-            print("✅ Admin criado com sucesso!")
+        if db.query(User).filter(User.email == ADMIN_EMAIL).first():
+            print(f"✅ Admin '{ADMIN_EMAIL}' já existe no banco.")
+            return
+
+        password = os.environ.get("SEED_ADMIN_PASSWORD") or secrets.token_urlsafe(12)
+        print("Criando usuário admin...")
+        db.add(User(
+            id=str(uuid.uuid4()),
+            name="Admin",
+            email=ADMIN_EMAIL,
+            password_hash=get_password_hash(password),
+            cargo="Administrador",
+            type="admin",
+            eixo=None,
+            nota_rotacao=None,
+            pontos_acumulados=0,
+            rotacao=None,
+        ))
+        db.commit()
+        print("✅ Admin criado com sucesso!")
+        print(f"   Email: {ADMIN_EMAIL}")
+        if os.environ.get("SEED_ADMIN_PASSWORD"):
+            print("   Senha: a definida em SEED_ADMIN_PASSWORD")
         else:
-            print("✅ Admin 'admin@infojr.com.br' já existe no banco.")
-
-        print("   Email: admin@infojr.com.br")
-        print("   Senha: admin123")
-
+            print(f"   Senha gerada (anote, não será mostrada de novo): {password}")
     except Exception as e:
         db.rollback()
         print(f"❌ Erro durante seeding: {e}")

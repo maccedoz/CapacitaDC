@@ -35,7 +35,7 @@ Usuários antigos podem ter o eixo gravado pelo nome de exibição ("Vendas", "C
 
 ## Caminhos principais
 
-- `/login` e `/cadastro`: autenticação e cadastro público de trainee.
+- `/login`: autenticação. Não há cadastro público: membros e trainees nunca criam a própria conta; a gestão cadastra as pessoas no painel, sempre com senha de pelo menos 6 caracteres.
 - `/`: painel de administração, com pessoas, materiais, atividades, **Correções**, notas e trilhas. Para o gerente, o painel se identifica como **Gerente — <eixo>** e mostra apenas o seu escopo: o eixo e o PlugInfo.
 - Aba **Atividades → Jogos** no painel (também disponível em `/jogos`): biblioteca e autoria de jogos, acessível a administradores, organizadores e gerentes (estes, no próprio eixo e no PlugInfo).
 - `/membros` e `/trainees`: consumo de conteúdo, trilhas e entregas.
@@ -169,6 +169,14 @@ Cenários salvam as decisões no servidor. Os demais formatos mantêm as escolha
 
 Diálogos com ramificações já podem ser representados pelo cenário; uma versão com estado, recursos ou negociação dinâmica seria uma evolução desse formato. Cronômetro, embaralhamento, limite de tentativas e medalhas são recursos compartilhados, não tipos de jogo.
 
+## Segurança do acesso
+
+- **Login:** 5 senhas erradas seguidas para o mesmo e-mail bloqueiam o login por 15 minutos (resposta 429, com o tempo restante). Um login certo zera a contagem. O contador fica no banco, porque a API roda em funções serverless. Um e-mail inexistente recebe a mesma resposta e leva o mesmo tempo que uma senha errada.
+- **Senhas:** pelo menos 6 caracteres, conferidos também no servidor, ao cadastrar e ao redefinir. Não existe senha padrão.
+- **CORS:** desligado por padrão, porque o navegador chama a API pela mesma origem. Origens extras entram por `CORS_ORIGINS`.
+- **Uploads de materiais:** além da extensão, o servidor confere a assinatura do arquivo (PDF, imagens, ZIP e formatos do Office). TXT e CSV não têm assinatura.
+- **Erros:** falhas não tratadas são registradas no log da API com o rastreio e respondem 500 sem detalhes internos.
+
 ## Arquitetura e contratos
 
 - `frontend/app/`: páginas e composição dos fluxos.
@@ -188,7 +196,8 @@ Rotas principais (consulte `/docs` na API para o contrato completo):
 
 | Recurso | Rotas |
 | --- | --- |
-| Sessão | `POST /api/auth/login`, `POST /api/auth/register`, `GET /api/auth/me` |
+| Sessão | `POST /api/auth/login`, `GET /api/auth/me` |
+| Saúde | `GET /api/health` (confere o banco) |
 | Pessoas | `GET/POST /api/users`, `PUT/DELETE /api/users/{id}`, `GET /api/users/{id}/profile` (somente gestão: participantes não listam pessoas) |
 | Materiais | `GET/POST /api/materials`, `PUT/DELETE /api/materials/{id}` |
 | Atividades | `GET/POST /api/activities`, `PATCH/DELETE /api/activities/{id}` |

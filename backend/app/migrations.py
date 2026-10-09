@@ -188,3 +188,11 @@ def migrate(engine):
                 connection.execute(text("UPDATE users SET nota_rotacao = :grade WHERE id = :id"),
                                    {"id": user_id, "grade": weighted_average(graded)})
             connection.execute(text("INSERT INTO schema_migrations(version) VALUES (6)"))
+
+        if 7 not in applied:
+            columns = {column["name"] for column in inspect(connection).get_columns("users")}
+            for name, definition in {"failed_login_attempts": "INTEGER NOT NULL DEFAULT 0",
+                                     "locked_until": "TIMESTAMP"}.items():
+                if name not in columns:
+                    connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
+            connection.execute(text("INSERT INTO schema_migrations(version) VALUES (7)"))
