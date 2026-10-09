@@ -30,7 +30,7 @@ cd frontend
 npx playwright install chromium
 ```
 
-Cada jornada tem um script npm: `test:ui`, `test:release`, `test:deadlines`, `test:progress`, `test:games`, `test:corrections`, `test:assessments`, `test:attachments` e `test:manager`.
+Rode cada jornada com uma API de teste recém-iniciada: os dados que uma jornada cria (etapas, pré-requisitos) podem bloquear passos da seguinte. Cada jornada tem um script npm: `test:ui`, `test:release`, `test:deadlines`, `test:progress`, `test:games`, `test:corrections`, `test:assessments`, `test:attachments` e `test:manager`.
 
 Alternativamente, `PLAYWRIGHT_PACKAGE` pode apontar para uma instalação de Playwright já disponível, e `PLAYWRIGHT_BROWSERS_PATH` para seus navegadores. Esses caminhos são configuração da máquina, não devem ser versionados.
 

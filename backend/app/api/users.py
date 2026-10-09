@@ -5,7 +5,7 @@ api/users.py — User & member management endpoints (/api/users/*)
 import uuid
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app import models, schemas
@@ -230,11 +230,15 @@ def get_user_profile(
     progress_list = db.query(models.UserNodeProgress).filter(
         models.UserNodeProgress.user_id == user_id
     ).all()
+    # As etapas do progresso vêm numa só consulta, não uma por linha.
+    node_ids = {p.node_id for p in progress_list}
+    nodes = {
+        node.id: node
+        for node in db.query(models.TrainingNode).filter(models.TrainingNode.id.in_(node_ids)).all()
+    } if node_ids else {}
     node_progress = []
     for p in progress_list:
-        node = db.query(models.TrainingNode).filter(
-            models.TrainingNode.id == p.node_id
-        ).first()
+        node = nodes.get(p.node_id)
         if node and (visible_node_eixos is None or node.eixo in visible_node_eixos):
             node_progress.append(
                 schemas.NodeProgressOut(
@@ -249,7 +253,7 @@ def get_user_profile(
 
     submissions_query = db.query(models.ActivitySubmission).join(models.Activity).filter(
         models.ActivitySubmission.user_id == user_id
-    )
+    ).options(selectinload(models.ActivitySubmission.attachments))
     visible_activity_eixos = visible_node_eixos
     if visible_activity_eixos is not None:
         submissions_query = submissions_query.filter(models.Activity.eixo.in_(visible_activity_eixos))

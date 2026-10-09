@@ -179,7 +179,9 @@ Diálogos com ramificações já podem ser representados pelo cenário; uma vers
 
 ## Arquitetura e contratos
 
-- `frontend/app/`: páginas e composição dos fluxos.
+- `frontend/app/`: páginas e composição dos fluxos. O painel da gestão guarda a aba na URL (`/?aba=correcoes`), para recarregar ou compartilhar o link sem perder a aba.
+- `frontend/components/dashboard/tabs/`: uma aba do painel por arquivo; os dados compartilhados (atividades, materiais, etapas, pessoas e escopo) vêm de `dashboard-context.tsx`.
+- `frontend/components/app-header.tsx`, `components/participant/` e `features/participant/`: cabeçalho comum e o que os portais de membros e trainees compartilham (guarda de acesso, leitor da etapa e biblioteca em `components/content/library.tsx`).
 - `frontend/features/`: tipos, chamadas de API e hooks de cada recurso.
 - `frontend/components/`: formulários, fila de correções, trilhas e jogos.
 - `backend/app/api/`: rotas HTTP.

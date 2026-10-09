@@ -119,10 +119,14 @@ def blocked_activity_ids(db: Session, current_user) -> set:
     if current_user.type in STAFF:
         return set()
     _, open_activities = open_content_ids(db, current_user)
+    # Só as colunas do vínculo, de todas as trilhas: uma etapa de outro eixo
+    # também prende a atividade.
     linked = {
-        node.activity_id or node.reference_id
-        for node in db.query(models.TrainingNode).all()
-        if node.type == "activity" or node.activity_id
+        activity_id or reference_id
+        for node_type, activity_id, reference_id in db.query(
+            models.TrainingNode.type, models.TrainingNode.activity_id, models.TrainingNode.reference_id,
+        ).all()
+        if node_type == "activity" or activity_id
     } - {None}
     return linked - open_activities
 
