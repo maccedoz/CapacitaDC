@@ -148,7 +148,7 @@ class UserNodeProgress(Base):
     completed = Column(Boolean, default=False, nullable=False)
     score = Column(Integer, default=0, nullable=False)
     grade = Column(Float, nullable=True)  # Melhor nota do jogo, de 0 a 10
-    completed_at = Column(DateTime, nullable=True)
+    completed_at = Column(UTCDateTime, nullable=True)
 
     # Relationships
     user = relationship("User", back_populates="node_progress")
@@ -165,8 +165,8 @@ class Game(Base):
     format = Column(String, nullable=False)
     config = Column(JSON, nullable=False, default=dict)
     created_by = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime, nullable=False)
-    updated_at = Column(DateTime, nullable=False)
+    created_at = Column(UTCDateTime, nullable=False)
+    updated_at = Column(UTCDateTime, nullable=False)
     revisions = relationship("GameRevision", back_populates="game", cascade="all, delete-orphan", order_by="GameRevision.version")
 
 
@@ -182,7 +182,7 @@ class GameRevision(Base):
     format = Column(String, nullable=False)
     config = Column(JSON, nullable=False)
     max_points = Column(Integer, nullable=False, default=100)
-    published_at = Column(DateTime, nullable=False)
+    published_at = Column(UTCDateTime, nullable=False)
     game = relationship("Game", back_populates="revisions")
 
 
@@ -198,8 +198,8 @@ class GameAttempt(Base):
     status = Column(String, nullable=False, default="in_progress")
     answers = Column(JSON, nullable=False, default=list)
     result = Column(JSON, nullable=True)
-    started_at = Column(DateTime, nullable=False)
-    completed_at = Column(DateTime, nullable=True)
+    started_at = Column(UTCDateTime, nullable=False)
+    completed_at = Column(UTCDateTime, nullable=True)
     node = relationship("TrainingNode", back_populates="game_attempts")
     revision = relationship("GameRevision")
 
@@ -220,7 +220,7 @@ class Activity(Base):
     is_required = Column(Boolean, default=True, server_default=true(), nullable=False)
     weight = Column(Float, default=1.0, nullable=False)    # Peso para cálculo de média ponderada
     created_by = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime, nullable=True)
+    created_at = Column(UTCDateTime, nullable=True)
 
     material_id = Column(String, ForeignKey("materials.id", ondelete="SET NULL"), nullable=True)
     material = relationship("Material")
@@ -239,7 +239,7 @@ class ActivitySubmission(Base):
     links = Column(JSON, nullable=True, default=list)
     attachments = relationship("SubmissionAttachment", back_populates="submission")
     comment = Column(Text, nullable=True, default="")  # Comentário opcional do trainee
-    submitted_at = Column(DateTime, nullable=True)
+    submitted_at = Column(UTCDateTime, nullable=True)
     grade = Column(Float, nullable=True)           # Nota da entrega atual (0-10)
     previous_grade = Column(Float, nullable=True)  # Melhor nota das entregas anteriores
     feedback = Column(Text, nullable=True, default="")  # Feedback do avaliador

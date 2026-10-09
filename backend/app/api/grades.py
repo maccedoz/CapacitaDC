@@ -6,13 +6,14 @@ import mimetypes
 import uuid
 from typing import List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, File
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import models, schemas
 from app.auth import get_current_user, get_current_staff
 from app.services import access, blob_storage, material_files
-from app.services.activity_service import axis_metrics, submission_to_out
+from app.services.activity_service import axis_metrics_by_user, submission_to_out
 from app.services.roles import MEMBER_AXES, normalize_axis
 
 router = APIRouter()
@@ -109,6 +110,14 @@ def download_uploaded_file(
 
 # ── Grades spreadsheet ────────────────────────────────────────────────────────
 
+def _own_trail_total(user: models.User, node_totals: dict[str, int]) -> int:
+    """Etapas da trilha da própria pessoa: PlugInfo para trainees, o eixo para membros."""
+    if user.type == "trainee":
+        return node_totals.get("trainee", 0)
+    eixo = normalize_axis(user.eixo)
+    return node_totals.get(eixo, 0) if eixo in MEMBER_AXES else 0
+
+
 @router.get("/grades", response_model=List[schemas.GradeRow])
 def get_grades(
     db: Session = Depends(get_db),
@@ -118,51 +127,58 @@ def get_grades(
     if current_user.type == "gerente":
         # Membros: cada coluna conta apenas a trilha do eixo, inclusive pontos e média.
         # Trainees seguem abaixo com as mesmas linhas que o organizador recebe.
-        users = []
+        users, members = [], []
         for u in access.managed_users(db, current_user):
-            if u.type != "membro":
-                users.append(u)
-                continue
+            (members if u.type == "membro" else users).append(u)
+        # Os membros são agrupados pelos eixos acompanhados, para consultar uma vez por grupo.
+        groups: dict[frozenset, list[str]] = {}
+        for u in members:
+            groups.setdefault(frozenset(access.followed_eixos(current_user, u)), []).append(u.id)
+        metrics = {}
+        for eixos, user_ids in groups.items():
+            metrics.update(axis_metrics_by_user(db, user_ids, set(eixos)))
+        for u in members:
             result.append(schemas.GradeRow(
                 id=u.id, name=u.name, email=u.email, cargo=u.cargo, type=u.type, eixo=u.eixo,
-                rotacao=u.rotacao, **axis_metrics(db, u.id, access.followed_eixos(current_user, u)),
+                rotacao=u.rotacao, **metrics[u.id],
             ))
-        trainee_nodes = db.query(models.TrainingNode).filter(models.TrainingNode.eixo == "trainee").count()
-        total_nodes_map = {u.id: trainee_nodes for u in users}
     elif current_user.type == "organizador":
         users = db.query(models.User).filter(models.User.type == "trainee").all()
-        total_nodes_map = {
-            u.id: db.query(models.TrainingNode).filter(
-                models.TrainingNode.eixo == "trainee"
-            ).count()
-            for u in users
-        }
     else:
         users = db.query(models.User).filter(
             models.User.type.in_(["trainee", "membro"])
         ).all()
-        total_nodes_map = {}
-        for u in users:
-            if u.type == "trainee":
-                total_nodes_map[u.id] = db.query(models.TrainingNode).filter(
-                    models.TrainingNode.eixo == "trainee"
-                ).count()
-            else:
-                eixo = normalize_axis(u.eixo)
-                total_nodes_map[u.id] = db.query(models.TrainingNode).filter(
-                    models.TrainingNode.eixo == eixo
-                ).count() if eixo in MEMBER_AXES else 0
+
+    # Contagens agrupadas por pessoa e por eixo, em vez de consultas por linha.
+    # O denominador é só a trilha da própria pessoa; o numerador conta toda etapa
+    # concluída, em qualquer eixo.
+    user_ids = [u.id for u in users]
+    node_totals: dict[str, int] = {}
+    completed: dict[str, int] = {}
+    submitted: dict[str, tuple[int, int]] = {}
+    if user_ids:
+        node_totals = dict(db.query(
+            models.TrainingNode.eixo, func.count(models.TrainingNode.id),
+        ).group_by(models.TrainingNode.eixo).all())
+        completed = dict(db.query(
+            models.UserNodeProgress.user_id, func.count(models.UserNodeProgress.id),
+        ).filter(
+            models.UserNodeProgress.user_id.in_(user_ids),
+            models.UserNodeProgress.completed == True,
+        ).group_by(models.UserNodeProgress.user_id).all())
+        submitted = {
+            user_id: (total, graded)
+            for user_id, total, graded in db.query(
+                models.ActivitySubmission.user_id,
+                func.count(models.ActivitySubmission.id),
+                func.count(models.ActivitySubmission.grade),
+            ).filter(
+                models.ActivitySubmission.user_id.in_(user_ids),
+            ).group_by(models.ActivitySubmission.user_id).all()
+        }
 
     for u in users:
-        progress = db.query(models.UserNodeProgress).filter(
-            models.UserNodeProgress.user_id == u.id,
-            models.UserNodeProgress.completed == True,
-        ).count()
-        subs = db.query(models.ActivitySubmission).filter(
-            models.ActivitySubmission.user_id == u.id
-        ).all()
-        graded = [s for s in subs if s.grade is not None]
-
+        subs_total, subs_graded = submitted.get(u.id, (0, 0))
         result.append(schemas.GradeRow(
             id=u.id,
             name=u.name,
@@ -173,10 +189,10 @@ def get_grades(
             rotacao=u.rotacao,
             nota_rotacao=u.nota_rotacao,
             pontos_acumulados=u.pontos_acumulados,
-            nodes_completed=progress,
-            nodes_total=total_nodes_map.get(u.id, 0),
-            activities_submitted=len(subs),
-            activities_graded=len(graded),
+            nodes_completed=completed.get(u.id, 0),
+            nodes_total=_own_trail_total(u, node_totals),
+            activities_submitted=subs_total,
+            activities_graded=subs_graded,
         ))
     return result
 

@@ -1,93 +1,30 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { useAuth } from "@/lib/auth-context"
-import { ThemeToggle } from "@/components/theme-toggle"
-import { openAuthenticatedFile } from "@/lib/api-client"
-import { LinkedText, safeHref } from "@/components/content/linked-text"
-import { isStaff } from "@/lib/roles"
-import { type ContentItem } from "@/lib/content-data"
+import { useState } from "react"
 import { asUtcDate } from "@/lib/datetime"
-import { ViewContentCard } from "@/components/content/view-content-card"
+import { AppHeader } from "@/components/app-header"
+import { Library } from "@/components/content/library"
+import { NodeReaderDialog } from "@/components/participant/node-reader-dialog"
 import { TrainingPath } from "@/components/dashboard/training-path"
 import { TrailCelebration } from "@/components/dashboard/trail-celebration"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Compass, LogOut, User, GraduationCap, FileText, Video,
-  ExternalLink, Award, ClipboardList, Upload, Clock, CheckCircle2,
-  XCircle, Link2, BookOpen, Search,
-} from "lucide-react"
-
 import { ActivitySubmissionForm } from "@/components/activities/submission-form"
 import { SubmissionContent } from "@/components/activities/submission-content"
+import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  BookOpen, CheckCircle2, ClipboardList, Clock, Compass, GraduationCap, Upload, XCircle,
+} from "lucide-react"
 
-import { useNodes, useNodeContent } from "@/features/nodes/hooks"
-import type { TrainingNode } from "@/features/nodes/types"
-import { useActivities } from "@/features/activities/hooks"
-import { useMaterials } from "@/features/materials/hooks"
+import { useParticipantPortal } from "@/features/participant/hooks"
 
 export default function TraineesPage() {
-  const router = useRouter()
-  const { user, logout, isLoading, refreshUser } = useAuth()
-
-  const { materials, refresh: refreshMaterials } = useMaterials()
-  const contents: ContentItem[] = materials as unknown as ContentItem[]
-  const { nodes, completeNode, refresh: refreshNodes } = useNodes()
-  const { activities, refresh: refreshActivities } = useActivities()
+  const portal = useParticipantPortal("trainee")
+  const { user, nodes, activities, contents } = portal
 
   const [activeTab, setActiveTab] = useState("trilha")
-  const [selectedNode, setSelectedNode] = useState<any | null>(null)
-  const [isReadingMaterial, setIsReadingMaterial] = useState(false)
-  const { content: nodeContent, loading: contentLoading, error: contentError, refresh: refreshNodeContent } = useNodeContent(
-    isReadingMaterial ? selectedNode?.id ?? null : null
-  )
-  const [searchQuery, setSearchQuery] = useState("")
 
-  useEffect(() => {
-    if (!isLoading) {
-      if (!user) router.push("/login")
-      else if (isStaff(user.type)) router.push("/")
-      else if (user.type === "membro") router.push("/membros")
-    }
-  }, [user, isLoading, router])
-
-  const refreshProgress = async () => {
-    // The submission is already saved; a refresh failure must not be reported as a failed submission.
-    const results = await Promise.allSettled([refreshUser(), refreshNodes(), refreshMaterials(), refreshActivities()])
-    results.forEach(result => {
-      if (result.status === "rejected") console.error("Erro ao atualizar progresso:", result.reason)
-    })
-  }
-
-  const handleLogout = () => { logout(); router.push("/login") }
-
-  const handleSelectNode = (node: Pick<TrainingNode, "id" | "type">) => {
-    if (node.type === "game") {
-      router.push(`/trilha/${encodeURIComponent(node.id)}/jogar`)
-      return
-    }
-    setSelectedNode(node)
-    setIsReadingMaterial(true)
-  }
-
-  const handleCompleteMaterial = async () => {
-    if (!selectedNode) return
-    try {
-      await completeNode(selectedNode.id)
-      await refreshProgress()
-      setIsReadingMaterial(false)
-      setSelectedNode(null)
-    } catch { alert("Erro ao salvar progresso") }
-  }
-
-  if (isLoading || !user || user.type !== "trainee") {
+  if (!portal.ready || !user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="animate-pulse text-muted-foreground">Carregando...</div>
@@ -95,52 +32,20 @@ export default function TraineesPage() {
     )
   }
 
-  const relatedActivity = nodeContent?.activity
-  const activeMaterial = nodeContent?.material
-
   return (
     <main className="min-h-screen bg-background">
-      <TrailCelebration userId={user.id} trail="trainee" trailName="Trainee" personName={user.name} steps={nodes} paused={isReadingMaterial} />
-      {/* Header */}
-      <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center">
-                <GraduationCap className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-foreground">Portal do Trainee</h1>
-                <p className="text-sm text-muted-foreground">Capacitação</p>
-              </div>
-            </div>
+      <TrailCelebration userId={user.id} trail="trainee" trailName="Trainee" personName={user.name} steps={nodes} paused={portal.isReading} />
+      <AppHeader
+        icon={GraduationCap}
+        title="Portal do Trainee"
+        subtitle="Capacitação"
+        badges={
+          <Badge variant="outline" className="text-amber-400 light:text-amber-700 border-amber-400/30">
+            Trainee
+          </Badge>
+        }
+      />
 
-            <div className="flex items-center gap-4">
-              {user && (
-                <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                  <User className="h-4 w-4" />
-                  <span className="hidden sm:inline font-medium">{user.name}</span>
-                  <Badge variant="outline" className="text-amber-400 light:text-amber-700 border-amber-400/30">
-                    Trainee
-                  </Badge>
-                </div>
-              )}
-              <ThemeToggle />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleLogout}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <LogOut className="h-4 w-4 mr-2" />
-                <span className="hidden sm:inline">Sair</span>
-              </Button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Container */}
       <div className="container mx-auto px-4 py-8 space-y-8">
         {/* Welcome Info Box */}
         <div className="bg-gradient-to-r from-card to-secondary/30 border border-border rounded-2xl p-6 shadow-sm">
@@ -193,11 +98,7 @@ export default function TraineesPage() {
             </div>
 
             <div className="flex justify-center py-6 bg-card rounded-2xl border border-border">
-              <TrainingPath
-                nodes={nodes as any[]}
-                onSelectNode={handleSelectNode}
-                highlighted={true}
-              />
+              <TrainingPath nodes={nodes as any[]} onSelectNode={portal.selectNode} highlighted={true} />
             </div>
           </TabsContent>
 
@@ -276,8 +177,8 @@ export default function TraineesPage() {
 
                         {isOpen && (
                           <ActivitySubmissionForm activity={activity} onSubmitted={async () => {
-                            await refreshActivities()
-                            await refreshProgress()
+                            await portal.refreshActivities()
+                            await portal.refreshProgress()
                           }} />
                         )}
                       </CardContent>
@@ -288,193 +189,30 @@ export default function TraineesPage() {
             )}
           </TabsContent>
 
-
-
           {/* TAB: Biblioteca */}
-          <TabsContent value="biblioteca" className="space-y-6">
-            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-              <div className="space-y-1">
-                <h2 className="text-xl font-bold text-foreground">Biblioteca de Trainees</h2>
-                <p className="text-xs text-muted-foreground">Consulte os materiais didáticos da sua capacitação.</p>
-              </div>
-              <div className="relative w-full sm:max-w-xs">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Pesquisar..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 bg-secondary border-border text-foreground placeholder:text-muted-foreground"
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-4">
-              {(() => {
-                const traineeContents = contents.filter(c => c.eixo === "trainee")
-                const filtered = traineeContents.filter((content) =>
-                  content.name.toLowerCase().includes(searchQuery.toLowerCase())
-                )
-                if (filtered.length === 0) {
-                  return (
-                    <div className="text-center py-12 border border-dashed border-border rounded-xl text-muted-foreground text-sm">
-                      Nenhum material encontrado.
-                    </div>
-                  )
-                }
-                return filtered.map((content) => (
-                  <ViewContentCard key={content.id} content={content} />
-                ))
-              })()}
-            </div>
+          <TabsContent value="biblioteca">
+            <Library
+              contents={contents.filter(c => c.eixo === "trainee")}
+              title="Biblioteca de Trainees"
+              description="Consulte os materiais didáticos da sua capacitação."
+              emptyMessage="Nenhum material encontrado."
+            />
           </TabsContent>
         </Tabs>
       </div>
 
-      {/* MODAL: Leitor de Material */}
-      <Dialog open={isReadingMaterial} onOpenChange={setIsReadingMaterial}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-card border-border text-foreground">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-extrabold mt-2 leading-tight">
-              {activeMaterial?.name || selectedNode?.name || "Material de Capacitação"}
-            </DialogTitle>
-            <DialogDescription className="sr-only">Conteúdo e atividades da etapa selecionada na trilha.</DialogDescription>
-          </DialogHeader>
-          {contentLoading || (!nodeContent && !contentError) ? (
-            <p role="status" className="py-8 text-center text-sm text-muted-foreground">Carregando conteúdo...</p>
-          ) : contentError ? (
-            <div className="space-y-4 py-8 text-center">
-              <p role="alert" className="text-sm text-destructive">{contentError}</p>
-              <Button variant="outline" onClick={() => void refreshNodeContent()}>Tentar novamente</Button>
-            </div>
-          ) : activeMaterial || relatedActivity ? (
-            <>
-              <div className="flex items-center justify-between">
-                <Badge className="bg-primary/20 text-primary border-primary/30 uppercase tracking-widest text-[9px] font-extrabold">
-                  Capacitação Geral
-                </Badge>
-              </div>
-
-              <div className="space-y-6 mt-4">
-                {/* Texto */}
-                {activeMaterial?.text && (
-                  <div className="prose prose-sm dark:prose-invert max-w-none bg-muted p-5 rounded-xl border border-border leading-relaxed text-sm text-foreground whitespace-pre-line font-medium">
-                    <LinkedText text={activeMaterial.text} />
-                  </div>
-                )}
-
-                {/* Recursos Adicionais */}
-                {((activeMaterial?.videos && activeMaterial?.videos.length > 0) ||
-                  (activeMaterial?.documents && activeMaterial?.documents.length > 0)) && (
-                  <div className="space-y-4">
-                    <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground">Recursos Adicionais</h4>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {activeMaterial?.videos?.filter(vidUrl => safeHref(vidUrl)).map((vidUrl, i) => (
-                        <a
-                          key={i}
-                          href={safeHref(vidUrl)!}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-3 p-3 bg-secondary rounded-xl hover:bg-secondary/80 border border-border text-xs font-semibold transition"
-                        >
-                          <div className="bg-rose-500/10 text-rose-500 light:text-rose-600 p-2 rounded-lg">
-                            <Video className="w-4 h-4" />
-                          </div>
-                          <span className="flex-1 truncate">Vídeo de Apoio {i + 1}</span>
-                          <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-                        </a>
-                      ))}
-
-                      {activeMaterial?.documents?.map((doc, i) => (
-                        // Documentos enviados ficam em armazenamento privado: a abertura
-                        // passa pelo download autenticado, que confere o acesso à etapa.
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => void openAuthenticatedFile(doc.url).catch(error => alert(error instanceof Error ? error.message : "Não foi possível abrir o documento."))}
-                          className="flex items-center gap-3 p-3 bg-secondary rounded-xl hover:bg-secondary/80 border border-border text-xs font-semibold transition text-left"
-                        >
-                          <div className="bg-primary/10 text-primary p-2 rounded-lg">
-                            <FileText className="w-4 h-4" />
-                          </div>
-                          <span className="flex-1 truncate">{doc.name}</span>
-                          <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Related Activity Section */}
-                {relatedActivity && (
-                  <div className="mt-6 border-t border-border pt-4 space-y-4">
-                    <h4 className="font-bold text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                      <ClipboardList className="w-4 h-4 text-primary" /> Atividade Requerida: {relatedActivity.title}
-                    </h4>
-                    {relatedActivity.description && (
-                      <p className="text-xs text-muted-foreground bg-secondary/50 p-3 rounded-lg border border-border">
-                        {relatedActivity.description}
-                      </p>
-                    )}
-                    {(selectedNode?.deadline || relatedActivity.deadline) && (
-                      <p className="text-[10px] text-amber-400 light:text-amber-700 flex items-center gap-1 font-semibold">
-                        <Clock className="w-3.5 h-3.5" /> Prazo de entrega: {asUtcDate(selectedNode?.deadline || relatedActivity.deadline).toLocaleString("pt-BR")}
-                      </p>
-                    )}
-
-                    {/* Submission status or form */}
-                    {relatedActivity.my_submission ? (
-                      <div className="rounded-xl bg-emerald-500/5 border border-emerald-500/20 p-3 space-y-2">
-                        <p className="text-xs font-semibold text-emerald-400 light:text-emerald-700">✓ Atividade Enviada</p>
-                        <SubmissionContent submission={relatedActivity.my_submission} />
-                        {relatedActivity.my_submission.grade !== null && relatedActivity.my_submission.grade !== undefined && (
-                          <div className="pt-2 border-t border-emerald-500/20">
-                            <p className="text-xs font-bold text-emerald-400 light:text-emerald-700">Nota: {relatedActivity.my_submission.grade.toFixed(1)}</p>
-                            {relatedActivity.my_submission.feedback && (
-                              <p className="text-xs text-muted-foreground">{relatedActivity.my_submission.feedback}</p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ) : null}
-
-                    {/* If open and not submitted, show the inputs */}
-                    {relatedActivity.effective_open && (
-                      <ActivitySubmissionForm activity={relatedActivity} nodeId={selectedNode.id}
-                        onSubmitted={async () => {
-                          await refreshActivities()
-                          await refreshProgress()
-                          setIsReadingMaterial(false)
-                          setSelectedNode(null)
-                        }} />
-                    )}
-                  </div>
-                )}
-
-                {/* Ações */}
-                <div className="flex justify-end pt-4 border-t border-border gap-3">
-                  <Button variant="outline" onClick={() => setIsReadingMaterial(false)}>
-                    Fechar Leitor
-                  </Button>
-                  {selectedNode?.type === "material" && (!relatedActivity || relatedActivity.my_submission) && (
-                    <Button onClick={handleCompleteMaterial} disabled={nodeContent?.node.completed}>
-                      {nodeContent?.node.completed ? "Já concluído" : "Concluir etapa"}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="space-y-4 py-8 text-center text-sm text-muted-foreground">
-              <p role="status">{!selectedNode?.reference_id && !selectedNode?.activity_id
-                ? "Esta etapa está sem conteúdo vinculado. Avise o responsável pela trilha para associar o material ou a atividade."
-                : "O conteúdo desta etapa não está disponível. Ele pode ter sido removido ou ter o acesso alterado."}</p>
-              <Button variant="outline" onClick={() => void refreshNodeContent()}>Tentar novamente</Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
+      <NodeReaderDialog
+        open={portal.isReading}
+        onOpenChange={portal.setIsReading}
+        selectedNode={portal.selectedNode}
+        badge="Capacitação Geral"
+        onCompleteMaterial={portal.completeMaterial}
+        onSubmitted={async () => {
+          await portal.refreshActivities()
+          await portal.refreshProgress()
+          portal.closeReader()
+        }}
+      />
     </main>
   )
 }

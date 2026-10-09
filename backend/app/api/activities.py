@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app import models, schemas
@@ -218,22 +219,39 @@ def get_activities(
         ).all()
 
     blocked_activities = blocked_activity_ids(db, current_user)
+    activities = [act for act in activities if act.id not in blocked_activities]
+    activity_ids = [act.id for act in activities]
     followed = access.managed_user_ids(db, current_user) if current_user.type == "gerente" else None
+
+    # Contagem e entrega própria em consultas únicas, não uma por atividade.
+    submission_counts: dict[str, int] = {}
+    my_submissions: dict[str, models.ActivitySubmission] = {}
+    if activity_ids:
+        counts_query = db.query(
+            models.ActivitySubmission.activity_id, func.count(models.ActivitySubmission.id),
+        ).filter(models.ActivitySubmission.activity_id.in_(activity_ids))
+        # O gerente conta só as entregas das pessoas que ele acompanha.
+        if followed is not None:
+            counts_query = counts_query.filter(models.ActivitySubmission.user_id.in_(followed))
+        submission_counts = dict(counts_query.group_by(models.ActivitySubmission.activity_id).all())
+        if not is_privileged:
+            for sub in db.query(models.ActivitySubmission).options(
+                selectinload(models.ActivitySubmission.attachments),
+            ).filter(
+                models.ActivitySubmission.activity_id.in_(activity_ids),
+                models.ActivitySubmission.user_id == current_user.id,
+            ).all():
+                my_submissions.setdefault(sub.activity_id, sub)
+
     result = []
     for act in activities:
-        if act.id in blocked_activities:
-            continue
         effective_open = is_effectively_open(act)
-        # O gerente conta só as entregas das pessoas que ele acompanha.
-        submission_count = len(act.submissions) if followed is None else sum(
-            sub.user_id in followed for sub in act.submissions
-        )
+        submission_count = submission_counts.get(act.id, 0)
 
         my_submission = None
-        if not is_privileged:
-            sub = next((s for s in act.submissions if s.user_id == current_user.id), None)
-            if sub:
-                my_submission = submission_to_out(sub, user=current_user, activity=act)
+        sub = my_submissions.get(act.id)
+        if sub:
+            my_submission = submission_to_out(sub, user=current_user, activity=act)
 
         result.append(schemas.ActivityOut(
             id=act.id,
