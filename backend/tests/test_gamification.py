@@ -89,11 +89,12 @@ class GamificationTests(unittest.TestCase):
     def test_achievements_follow_progress(self):
         first, second = self.game(), self.game(allow_retry=False)
         earned = lambda: {item['id']: item['earned'] for item in self.summary()['achievements']}
-        self.assertEqual(earned(), dict.fromkeys(['first_step', 'perfect_grade', 'persistent', 'consistent', 'trail_complete'], False))
+        self.assertEqual(earned(), dict.fromkeys(['first_step', 'perfect_grade', 'persistent', 'consistent', 'trail_complete',
+                                                 'hat_trick', 'first_try', 'halfway', 'explorer', 'all_trails'], False))
         self.play(first, correct=False)
         self.assertFalse(earned()['first_step'])  # A failed repeatable game does not conclude the step.
         self.play(first, correct=True)
-        self.assertEqual({key for key, value in earned().items() if value}, {'first_step', 'perfect_grade', 'persistent'})
+        self.assertEqual({key for key, value in earned().items() if value}, {'first_step', 'perfect_grade', 'persistent', 'halfway'})
         self.play(second, correct=False)  # Single attempt: concluded with any grade.
         achievements = {item['id']: item for item in self.summary()['achievements']}
         self.assertTrue(achievements['trail_complete']['earned'])

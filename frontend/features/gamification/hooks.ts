@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { gamificationApi } from "./api"
 import type { GamificationSummary } from "./types"
 
-export function useGamification(enabled: boolean) {
+export function useGamification(enabled: boolean, userId?: string) {
   const [summary, setSummary] = useState<GamificationSummary | null>(null)
   const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState<string | null>(null)
@@ -30,7 +30,26 @@ export function useGamification(enabled: boolean) {
     }
   }, [enabled])
 
-  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    setSummary(null)
+    setError(null)
+    if (!enabled) setLoading(false)
+    void refresh()
+    return () => { version.current++ }
+  }, [enabled, refresh, userId])
 
-  return { summary, loading, error, refresh }
+  useEffect(() => {
+    if (!enabled) return
+    const onVisible = () => { if (document.visibilityState === "visible") void refresh() }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => document.removeEventListener("visibilitychange", onVisible)
+  }, [enabled, refresh])
+
+  const acknowledge = async (achievementIds: string[]) => {
+    const request = ++version.current
+    const result = await gamificationApi.acknowledge(achievementIds)
+    if (request === version.current) setSummary(result)
+  }
+
+  return { summary, loading, error, refresh, acknowledge }
 }

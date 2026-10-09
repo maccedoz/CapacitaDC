@@ -9,6 +9,7 @@ import { NodeReaderDialog } from "@/components/participant/node-reader-dialog"
 import { TrainingPath } from "@/components/dashboard/training-path"
 import { TrailCelebration } from "@/components/dashboard/trail-celebration"
 import { LevelBadge, MemberProgress } from "@/components/gamification/member-progress"
+import { AchievementPopup } from "@/components/gamification/achievement-popup"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BookOpen, Compass, Trophy } from "lucide-react"
@@ -18,11 +19,13 @@ import { useParticipantPortal } from "@/features/participant/hooks"
 
 export default function MembrosPage() {
   const { user: authUser } = useAuth()
-  const gamification = useGamification(authUser?.type === "membro")
+  const gamification = useGamification(authUser?.type === "membro", authUser?.id)
   const portal = useParticipantPortal("membro", gamification.refresh)
   const { user, nodes, contents } = portal
 
   const [activeTab, setActiveTab] = useState("trilhas")
+  const [trailCelebrationOpen, setTrailCelebrationOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
 
   if (!portal.ready || !user) {
     return (
@@ -46,15 +49,22 @@ export default function MembrosPage() {
   }
 
   const officialAxis = normalizeAxis(user.eixo)
+  const newAchievements = gamification.summary?.new_achievements ?? []
 
   return (
     <main className="min-h-screen bg-background">
       {officialAxis && <TrailCelebration userId={user.id} trail={officialAxis} trailName={axisLabel(officialAxis)} personName={user.name}
-        steps={nodes.filter(node => node.eixo === officialAxis)} paused={portal.isReading} />}
+        steps={nodes.filter(node => node.eixo === officialAxis)}
+        paused={portal.isReading || profileOpen || !!user.password_prompt_pending || newAchievements.length > 0}
+        onOpenChange={setTrailCelebrationOpen} />}
+      <AchievementPopup key={user.id} achievements={newAchievements}
+        paused={portal.isReading || profileOpen || !!user.password_prompt_pending || trailCelebrationOpen}
+        onAcknowledge={gamification.acknowledge} />
       <AppHeader
         icon={Compass}
         title="Portal do Membro"
         subtitle="Trilhas & Aprendizado"
+        onProfileOpenChange={setProfileOpen}
         badges={<>
           {user.eixo && (
             <Badge variant="secondary" className="text-xs bg-primary/10 border-primary/20 text-primary uppercase font-bold">
@@ -66,7 +76,7 @@ export default function MembrosPage() {
       />
 
       <div className="container mx-auto px-4 py-8">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
+        <Tabs value={activeTab} onValueChange={tab => { setActiveTab(tab); if (tab === "conquistas") void gamification.refresh() }} className="space-y-8">
           <TabsList className="bg-card border border-border">
             <TabsTrigger value="trilhas" className="gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <Compass className="h-4 w-4" />

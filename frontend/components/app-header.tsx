@@ -19,16 +19,21 @@ interface AppHeaderProps {
   subtitle: string
   /** Selos ao lado do nome (papel, eixo, nível). */
   badges?: ReactNode
+  onProfileOpenChange?: (open: boolean) => void
 }
 
 /**
  * Cabeçalho comum ao painel da gestão e aos portais de membros e trainees, com o
  * menu do usuário (Meu perfil, Sair) e o aviso de troca de senha do primeiro acesso.
  */
-export function AppHeader({ icon: Icon, title, subtitle, badges }: AppHeaderProps) {
+export function AppHeader({ icon: Icon, title, subtitle, badges, onProfileOpenChange }: AppHeaderProps) {
   const router = useRouter()
   const { user, logout } = useAuth()
   const [profile, setProfile] = useState<{ open: boolean; focusPassword: boolean }>({ open: false, focusPassword: false })
+  const openProfile = (open: boolean, focusPassword = false) => {
+    setProfile({ open, focusPassword })
+    onProfileOpenChange?.(open)
+  }
 
   const handleLogout = () => { logout(); router.push("/login") }
 
@@ -65,7 +70,7 @@ export function AppHeader({ icon: Icon, title, subtitle, badges }: AppHeaderProp
                   </DropdownMenuLabel>
                   {badges && <div className="flex md:hidden flex-wrap items-center gap-2 px-2 pb-2">{badges}</div>}
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => setProfile({ open: true, focusPassword: false })}>
+                  <DropdownMenuItem onSelect={() => openProfile(true)}>
                     <UserRound className="mr-2 size-4" />Meu perfil
                   </DropdownMenuItem>
                   <DropdownMenuItem onSelect={handleLogout}>
@@ -78,9 +83,9 @@ export function AppHeader({ icon: Icon, title, subtitle, badges }: AppHeaderProp
         </div>
       </div>
       {profile.open && (
-        <ProfileDialog open onOpenChange={open => setProfile(p => ({ ...p, open }))} focusPassword={profile.focusPassword} />
+        <ProfileDialog open onOpenChange={open => openProfile(open, profile.focusPassword)} focusPassword={profile.focusPassword} />
       )}
-      <PasswordPrompt onChangePassword={() => setProfile({ open: true, focusPassword: true })} />
+      <PasswordPrompt onChangePassword={() => openProfile(true, true)} />
     </header>
   )
 }

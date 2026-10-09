@@ -29,6 +29,8 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 
 async function signIn(page, email, secret = password) {
   await page.goto(`${baseURL}/login`)
+  // O botão de tema muda de rótulo ao montar; aguarda os eventos do formulário.
+  await page.getByRole("button", { name: /Usar tema (claro|escuro)/ }).waitFor()
   await page.getByLabel("Email", { exact: true }).fill(email)
   await page.getByLabel("Senha", { exact: true }).fill(secret)
   await page.getByRole("button", { name: "Entrar", exact: true }).click()

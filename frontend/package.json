@@ -19,7 +19,8 @@
     "test:manager": "node tests/manager_journey.cjs",
     "test:profile": "node tests/profile_journey.cjs",
     "test:batch": "node tests/batch_grading_journey.cjs",
-    "test:dashboards": "node tests/dashboards_journey.cjs"
+    "test:dashboards": "node tests/dashboards_journey.cjs",
+    "test:achievements": "node tests/achievements_journey.cjs"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "1.1.4",

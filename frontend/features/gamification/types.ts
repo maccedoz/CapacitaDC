@@ -32,5 +32,7 @@ export interface GamificationSummary {
   level: MemberLevel
   eixo: string | null
   achievements: Achievement[]
+  /** Conquistas ganhas depois da primeira consulta e cujo aviso ainda não foi confirmado. */
+  new_achievements: Achievement[]
   ranking: RankingEntry[]
 }

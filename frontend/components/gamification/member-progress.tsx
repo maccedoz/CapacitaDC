@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Flag, Footprints, Lock, RotateCcw, Star, Target, Trophy, type LucideIcon } from "lucide-react"
+import { Compass, Flag, Footprints, Globe, Lock, RotateCcw, Sparkles, Star, Target, Trophy, Zap, type LucideIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,6 +11,7 @@ import type { GamificationSummary, RankingEntry } from "@/features/gamification/
 
 const ICONS: Record<string, LucideIcon> = {
   first_step: Footprints, perfect_grade: Star, persistent: RotateCcw, consistent: Target, trail_complete: Flag,
+  hat_trick: Trophy, first_try: Zap, halfway: Compass, explorer: Globe, all_trails: Sparkles,
 }
 const points = (value: number) => `${value.toLocaleString("pt-BR")} ${value === 1 ? "ponto" : "pontos"}`
 
