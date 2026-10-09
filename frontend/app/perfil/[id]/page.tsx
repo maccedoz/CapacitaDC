@@ -69,18 +69,6 @@ export default function PerfilPage() {
 
   const userId = (localParams?.id as string) || ""
 
-  useEffect(() => {
-    if (!isLoading) {
-      if (!user) {
-        router.push("/login")
-      } else if (!isStaff(user.type)) {
-        router.push(homePath(user.type))
-      } else if (userId && userId !== "[id]") {
-        fetchProfile()
-      }
-    }
-  }, [isLoading, user, userId])
-
   const fetchProfile = async () => {
     const token = localStorage.getItem("token")
     if (!token || !userId || userId === "[id]") return
@@ -103,6 +91,18 @@ export default function PerfilPage() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (!isLoading) {
+      if (!user) {
+        router.push("/login")
+      } else if (!isStaff(user.type)) {
+        router.push(homePath(user.type))
+      } else if (userId && userId !== "[id]") {
+        fetchProfile()
+      }
+    }
+  }, [isLoading, user, userId])
 
   if (isLoading || loading || !userId || userId === "[id]") {
     return (

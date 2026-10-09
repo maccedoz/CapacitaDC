@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import engine
-from app import models
+from app import models  # noqa: F401  (registra os modelos no Base antes das migrações)
 from app.api import auth, users, materials, nodes, activities, grades, games, gamification
 from app.migrations import migrate
 

@@ -1,0 +1,5 @@
+target-version = "py312"
+
+[lint]
+# Conjunto mínimo: erros de sintaxe, nomes indefinidos e imports sem uso.
+select = ["E9", "F"]

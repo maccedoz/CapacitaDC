@@ -1,13 +1,14 @@
-fastapi>=0.100.0
-uvicorn>=0.22.0
-sqlalchemy>=2.0.0
-psycopg2-binary>=2.9.0
-psycopg[binary]>=3.2,<4
-pydantic>=2.0.0
-pydantic-settings>=2.0.0
-python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
-python-multipart>=0.0.6
+fastapi==0.141.1
+uvicorn==0.54.0
+sqlalchemy==2.1.1
+psycopg2-binary==2.9.13
+psycopg[binary]==3.3.6
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-jose[cryptography]==3.5.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.32
+# passlib 1.7.4 tem problemas com o bcrypt 4 em diante; manter fixo.
 bcrypt==3.2.0
-email-validator>=2.0.0
+email-validator==2.3.0
 vercel==0.10.0

@@ -5,12 +5,17 @@ Execute os comandos a partir da raiz do repositório, exceto quando indicado. Os
 ## Backend e TypeScript
 
 ```bash
+backend/.venv/bin/pip install -r backend/requirements-dev.txt
+backend/.venv/bin/ruff check backend
 backend/.venv/bin/python -m unittest discover -s backend/tests -v
 cd frontend
 npm ci
+npm run lint
 npm run typecheck -- --incremental false
 npm run build
 ```
+
+O CI do GitHub (`.github/workflows/ci.yml`) roda esses mesmos passos em cada PR e em cada push em `main`: ruff e testes do backend; lint, tipos e build do frontend. O lint falha só com erros; os avisos de `any` explícito e de `setState` em efeitos ainda são tolerados.
 
 As suítes cobrem autenticação, permissões, criação e contratos das rotas, conteúdo bloqueado, conclusão das etapas, avaliação dos cinco formatos de jogos, tentativas repetidas, publicações, migrações, média ponderada e fila de correção.
 
@@ -18,13 +23,14 @@ As suítes cobrem autenticação, permissões, criação e contratos das rotas, 
 
 ## Preparar testes no navegador
 
-Os scripts usam Playwright. Se ele não estiver instalado, prepare-o apenas no ambiente de testes:
+Os scripts usam Playwright, que é dependência de desenvolvimento do frontend (`npm ci` já o instala). Falta só baixar o navegador uma vez:
 
 ```bash
 cd frontend
-npm install --no-save --package-lock=false playwright@1.57.0
 npx playwright install chromium
 ```
+
+Cada jornada tem um script npm: `test:ui`, `test:release`, `test:deadlines`, `test:progress`, `test:games`, `test:corrections`, `test:assessments`, `test:attachments` e `test:manager`.
 
 Alternativamente, `PLAYWRIGHT_PACKAGE` pode apontar para uma instalação de Playwright já disponível, e `PLAYWRIGHT_BROWSERS_PATH` para seus navegadores. Esses caminhos são configuração da máquina, não devem ser versionados.
 

@@ -149,7 +149,6 @@ def list_nodes_for_user(
             models.UserNodeProgress.user_id == current_user.id
         ).all()
     }
-    completed_node_ids = {nid for nid, p in progress_map.items() if p.completed}
 
     result = []
     for node in nodes:
