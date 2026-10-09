@@ -253,4 +253,6 @@ def submission_to_out(submission, *, user=None, activity=None) -> schemas.Activi
         result.activity_title = subject.title
         result.activity_weight = activity_weight(subject)
         result.activity_eixo = subject.eixo
+    if submission.graded_by is not None:
+        result.graded_by_name = submission.graded_by.name
     return result

@@ -10,7 +10,7 @@ from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app import game_schemas as schemas, models
-from app.services import access
+from app.services import access, audit
 from app.services.node_service import ensure_before_node_deadline, lock_progress_user
 
 
@@ -66,6 +66,9 @@ def publish_game(db, game, user):
     )
     game.revisions.append(revision)
     game.updated_at = datetime.now(timezone.utc)
+    # Só uma versão nova entra no histórico: publicar sem mudanças não cria nada.
+    audit.record(db, user, "game.publish", entity_type="game", entity_id=game.id, entity_name=game.title,
+                 eixo=game.eixo, details={"versão": revision.version})
     db.commit()
     db.refresh(game)
     return game_to_out(game)

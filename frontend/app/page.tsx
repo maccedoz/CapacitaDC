@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
-  Award, ClipboardCheck, ClipboardList, Compass, FileQuestion, Lightbulb, Shield, Users,
+  Award, ClipboardCheck, ClipboardList, Compass, FileQuestion, History, Lightbulb, Shield, Users,
 } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { homePath, isStaff, managerAxis, memberAxisLabels } from "@/lib/roles"
@@ -15,6 +15,7 @@ import {
 import { ActivitiesTab } from "@/components/dashboard/tabs/activities-tab"
 import { CorrectionsTab } from "@/components/dashboard/tabs/corrections-tab"
 import { GradesTab } from "@/components/dashboard/tabs/grades-tab"
+import { HistoryTab } from "@/components/dashboard/tabs/history-tab"
 import { SuggestionsTab } from "@/components/dashboard/tabs/suggestions-tab"
 import { MaterialsTab } from "@/components/dashboard/tabs/materials-tab"
 import { TrailTab } from "@/components/dashboard/tabs/trail-tab"
@@ -158,6 +159,9 @@ function DashboardContent() {
                   )}
                 </TabsTrigger>
               )}
+              <TabsTrigger value="historico" className={TAB_TRIGGER}>
+                <History className="h-4 w-4" />Histórico
+              </TabsTrigger>
             </TabsList>
 
             <TabsContent value="usuarios" className="space-y-6"><UsersTab /></TabsContent>
@@ -166,6 +170,7 @@ function DashboardContent() {
             <TabsContent value="notas" className="space-y-8"><GradesTab /></TabsContent>
             <TabsContent value="materiais" className="space-y-6"><MaterialsTab /></TabsContent>
             <TabsContent value="trilha" className="space-y-6"><TrailTab /></TabsContent>
+            <TabsContent value="historico" className="space-y-6"><HistoryTab /></TabsContent>
             {readsSuggestions && <TabsContent value="sugestoes" className="space-y-6"><SuggestionsTab /></TabsContent>}
           </Tabs>
         </div>

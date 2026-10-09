@@ -248,10 +248,13 @@ class ActivitySubmission(Base):
     grade = Column(Float, nullable=True)           # Nota da entrega atual (0-10)
     previous_grade = Column(Float, nullable=True)  # Melhor nota das entregas anteriores
     feedback = Column(Text, nullable=True, default="")  # Feedback do avaliador
+    graded_by_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)  # quem lançou a nota atual
+    graded_at = Column(UTCDateTime, nullable=True)
 
     # Relationships
     activity = relationship("Activity", back_populates="submissions")
-    user = relationship("User")
+    user = relationship("User", foreign_keys=[user_id])
+    graded_by = relationship("User", foreign_keys=[graded_by_id])
 
 
 class SubmissionAttachment(Base):
@@ -298,3 +301,25 @@ class Suggestion(Base):
     created_at = Column(UTCDateTime, nullable=False)
     read_at = Column(UTCDateTime, nullable=True)
     read_by_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class AuditLog(Base):
+    """Histórico de alterações feitas pela gestão: quem fez o quê, quando, e o antes/depois.
+
+    Nomes e eixo ficam copiados no momento da ação, para o registro continuar legível
+    (e filtrável por escopo) depois que a pessoa ou o conteúdo forem excluídos.
+    """
+    __tablename__ = "audit_logs"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    created_at = Column(UTCDateTime, nullable=False, index=True)
+    actor_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    actor_name = Column(String, nullable=False)
+    action = Column(String, nullable=False, index=True)       # ex.: "submission.grade", "node.release"
+    entity_type = Column(String, nullable=False)              # submission, activity, node, user, material, game
+    entity_id = Column(String, nullable=True)
+    entity_name = Column(String, nullable=True)
+    # Escopo do registro: eixo do conteúdo, ou da pessoa afetada ("trainee" para trainees).
+    eixo = Column(String, nullable=True, index=True)
+    target_user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    target_user_name = Column(String, nullable=True)
+    details = Column(JSON, nullable=True)                     # {campo: {"antes": ..., "depois": ...}} ou dados da ação

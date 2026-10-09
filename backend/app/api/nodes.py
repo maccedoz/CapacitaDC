@@ -10,13 +10,38 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models, schemas
 from app.auth import get_current_user, get_current_staff
-from app.services import node_service, access
+from app.services import audit, node_service, access
 from app.services.assessment_service import validate_settings
 from app.services.activity_service import recompute_users_grades
 from app.services.game_service import revision_for_node
 from app.services.activity_service import activity_deadline, activity_weight, is_effectively_open, submission_to_out
 
 router = APIRouter()
+
+
+def _node_audit(db: Session, node: models.TrainingNode) -> dict:
+    """Campos da etapa que o histórico acompanha; vínculos aparecem pelo nome."""
+    activity = db.get(models.Activity, node.activity_id) if node.activity_id else None
+    material = db.get(models.Material, node.reference_id) if node.reference_id and node.type != "activity" else None
+    prerequisite = db.get(models.TrainingNode, node.prerequisite_node_id) if node.prerequisite_node_id else None
+    revision = db.get(models.GameRevision, node.game_revision_id) if node.game_revision_id else None
+    return {
+        "nome": node.name,
+        "tipo": node.type,
+        "prazo": node.deadline,
+        "pré-requisito": prerequisite.name if prerequisite else None,
+        "atividade": activity.title if activity else None,
+        "material": material.name if material else None,
+        "jogo": f"{revision.title} (versão {revision.version})" if revision else None,
+        "repetição": node.allow_retry,
+        "obrigatória": node.is_required,
+        "peso": node.weight,
+    }
+
+
+def _record_node(db: Session, user: models.User, action: str, node: models.TrainingNode, details=None) -> None:
+    audit.record(db, user, action, entity_type="node", entity_id=node.id, entity_name=node.name,
+                 eixo=node.eixo, details=details)
 
 
 @router.get("/", response_model=List[schemas.TrainingNodeGraphOut])
@@ -99,9 +124,13 @@ def update_node_activity(
     access.ensure_activity_access(current_user, activity, manage=True)
     if activity.eixo not in {node.eixo, "all"}:
         raise HTTPException(400, "A atividade deve pertencer ao eixo da etapa")
+    before = _node_audit(db, node)
     node.type = "activity"
     node.activity_id = activity.id
     node.reference_id = None
+    details = audit.changes(before, _node_audit(db, node))
+    if details:
+        _record_node(db, current_user, "node.link_activity", node, details)
     db.commit()
     db.refresh(node)
     return node_service.node_to_out(node)
@@ -202,6 +231,7 @@ def create_training_node(
                 feedback=o_in.feedback or "",
             ))
 
+    _record_node(db, current_user, "node.create", new_node)
     db.commit()
     db.refresh(new_node)
 
@@ -275,6 +305,7 @@ def update_training_node(
             access.ensure_node_access(db, prerequisite, current_user)
             if prerequisite.eixo != node.eixo:
                 raise HTTPException(400, "O pré-requisito deve pertencer ao eixo da etapa")
+    before = _node_audit(db, node)
     for field, value in changes.items():
         setattr(node, field, value)
     # Tornar uma etapa opcional também refaz a corrente implícita das seguintes.
@@ -284,6 +315,9 @@ def update_training_node(
         if access.has_cycle(access.chain_of(axis_nodes)):
             raise HTTPException(400, "O pré-requisito criaria um ciclo na trilha")
     recompute_users_grades(db, affected)
+    details = audit.changes(before, _node_audit(db, node))
+    if details:
+        _record_node(db, current_user, "node.update", node, details)
     db.commit()
     db.refresh(node)
     return node_service.node_to_out(node)
@@ -303,6 +337,7 @@ def delete_training_node(
     affected = [row.user_id for row in node.progress if row.grade is not None]
     if current_user.type == "gerente" and any(not access.can_manage_user(current_user, db.get(models.User, user_id)) for user_id in affected):
         raise HTTPException(403, "Este jogo tem notas de participantes de outro eixo; peça ao administrador para excluí-lo.")
+    _record_node(db, current_user, "node.delete", node)
     db.delete(node)
     recompute_users_grades(db, affected)
     db.commit()
@@ -322,9 +357,13 @@ def release_node(
 
     access.ensure_node_eixo_access(current_user, node.eixo)
     access.ensure_contained_in_axis(db, current_user, node)
+    before = {"liberado": node.is_released, "liberação": node.released_at}
     node.is_released = release_data.is_released
     node.released_at = release_data.released_at
     node.released_by = current_user.id if release_data.is_released else None
+    details = audit.changes(before, {"liberado": node.is_released, "liberação": node.released_at})
+    if details:
+        _record_node(db, current_user, "node.release", node, details)
 
     db.commit()
     db.refresh(node)
@@ -385,6 +424,10 @@ def update_node_order(
         raise HTTPException(status_code=404, detail="Nó não encontrado")
     access.ensure_node_eixo_access(current_user, node.eixo)
     access.ensure_contained_in_axis(db, current_user, node)
+    # A posição aparece contando de 1, como na tela.
+    if order_data.order_index != node.order_index:
+        _record_node(db, current_user, "node.reorder", node, {"posição": {
+            "antes": (node.order_index or 0) + 1, "depois": order_data.order_index + 1}})
     node.order_index = order_data.order_index
     db.commit()
     db.refresh(node)

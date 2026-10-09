@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
 from app import models, schemas
 from app.auth import get_current_user, get_current_staff
-from app.services import blob_storage, access
+from app.services import access, audit, blob_storage, grading
 from app.services.roles import STAFF
 from app.services.node_service import blocked_activity_ids, lock_user
 from app.services.assessment_service import validate_settings, effective_grade
@@ -291,6 +291,22 @@ def get_activities(
     return result
 
 
+def _activity_audit(db: Session, activity: models.Activity) -> dict:
+    """Campos da atividade que o histórico acompanha; o material aparece pelo nome."""
+    material = db.get(models.Material, activity.material_id) if activity.material_id else None
+    return {
+        "título": activity.title,
+        "descrição": activity.description,
+        "prazo": activity.deadline,
+        "aberta": activity.is_open,
+        "peso": activity_weight(activity),
+        "obrigatória": activity.is_required,
+        "repetição": activity.allow_retry,
+        "exige arquivo": activity.accepts_file,
+        "material": material.name if material else None,
+    }
+
+
 @router.post("", response_model=schemas.ActivityOut)
 @router.post("/", response_model=schemas.ActivityOut, include_in_schema=False)
 def create_activity(
@@ -315,6 +331,8 @@ def create_activity(
         created_at=datetime.now(timezone.utc),
     )
     db.add(new_activity)
+    audit.record(db, current_user, "activity.create", entity_type="activity", entity_id=new_activity.id,
+                 entity_name=new_activity.title, eixo=new_activity.eixo)
     db.commit()
     db.refresh(new_activity)
 
@@ -356,6 +374,7 @@ def update_activity(
     assessment_changed = any(key in changes and changes[key] != getattr(activity, key) for key in ("weight", "is_required"))
     if assessment_changed:
         access.ensure_no_foreign_submissions(current_user, activity)
+    before = _activity_audit(db, activity)
 
     if update_data.is_open is not None:
         activity.is_open = update_data.is_open
@@ -378,6 +397,10 @@ def update_activity(
         activity.weight = update_data.weight
 
     recompute_users_grades(db, affected)
+    details = audit.changes(before, _activity_audit(db, activity))
+    if details:
+        audit.record(db, current_user, "activity.update", entity_type="activity", entity_id=activity.id,
+                     entity_name=activity.title, eixo=activity.eixo, details=details)
     db.commit()
     db.refresh(activity)
     deadline, from_trail = activity_deadline(db, activity)
@@ -415,6 +438,10 @@ def delete_activity(
     access.ensure_contained_in_axis(db, current_user, activity)
     access.ensure_no_foreign_submissions(current_user, activity)
     affected = graded_user_ids(db, activity.id)
+    submissions = len(activity.submissions)
+    audit.record(db, current_user, "activity.delete", entity_type="activity", entity_id=activity.id,
+                 entity_name=activity.title, eixo=activity.eixo,
+                 details={"entregas": submissions} if submissions else None)
     db.delete(activity)
     db.commit()
     recompute_users_grades(db, affected)
@@ -527,6 +554,9 @@ def delete_submission(
         raise HTTPException(status_code=403, detail="Organizadores só podem excluir entregas de trainees.")
 
     user_id = submission.user_id
+    audit.record(db, current_user, "submission.delete", entity_type="submission", entity_id=submission.id,
+                 entity_name=activity.title, eixo=activity.eixo, target=submission.user,
+                 details={"nota": submission.grade, "anexos": len(submission.attachments)})
     for attachment in list(submission.attachments):
         blob_storage.delete(attachment.storage_key)
         db.delete(attachment)
@@ -569,12 +599,8 @@ def grade_submission(
     ).first()
     if not submission:
         raise HTTPException(status_code=404, detail="Submissão não encontrada")
-    access.ensure_user_access(current_user, submission.user)
-    if current_user.type == "organizador" and (not submission.user or submission.user.type != "trainee"):
-        raise HTTPException(status_code=403, detail="Organizadores só podem corrigir entregas de trainees.")
-
-    submission.grade = grade_data.grade
-    submission.feedback = grade_data.feedback or ""
+    grading.ensure_can_grade(current_user, activity, submission)
+    grading.apply_grade(db, current_user, activity, submission, grade_data.grade, grade_data.feedback)
     # A média ponderada da pessoa deriva das notas: recalcular junto evita que a
     # planilha e o perfil mostrem um número velho até alguém recarregar.
     recompute_user_grade(db, submission.user_id)
