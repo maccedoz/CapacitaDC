@@ -10,8 +10,8 @@ import { useNodes } from "@/features/nodes/hooks"
 import { useUsers } from "@/features/users/hooks"
 import { useSuggestions } from "@/features/suggestions/hooks"
 
-export type DashboardTab = "usuarios" | "materiais" | "atividades" | "correcoes" | "notas" | "trilha" | "sugestoes" | "historico"
-export const DASHBOARD_TABS: DashboardTab[] = ["usuarios", "materiais", "atividades", "correcoes", "notas", "trilha", "sugestoes", "historico"]
+export type DashboardTab = "usuarios" | "materiais" | "atividades" | "correcoes" | "notas" | "trilha" | "sugestoes" | "historico" | "dashboards"
+export const DASHBOARD_TABS: DashboardTab[] = ["usuarios", "materiais", "atividades", "correcoes", "notas", "trilha", "sugestoes", "historico", "dashboards"]
 
 /** Dados e escopo compartilhados pelas abas do painel da gestão. */
 export interface DashboardData {

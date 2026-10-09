@@ -246,6 +246,14 @@ Rotas principais (consulte `/docs` na API para o contrato completo):
 
 As coleções aceitam as formas de URL utilizadas no frontend sem redirecionar a autenticação. As sessões novas usam ID de usuário estável no token. Respostas 401 significam sessão inválida, 403 falta de permissão, 422 erro de validação e 5xx falha do servidor. Erro temporário de `/auth/me` não apaga a sessão. A interface mostra o motivo de uma recusa 403 e confere a sessão de novo (também ao voltar para a aba); se papel ou eixo mudaram, o painel se recria sem manter dados do escopo anterior.
 
+## Dashboards da gestão
+
+A aba **Dashboards** permite selecionar a trilha e consultar conclusão por etapa liberada, média da melhor nota por jogo, quantidade de participantes que jogaram e percentual aprovado (nota 7 ou mais). Cada trilha considera apenas os membros do seu eixo ou os trainees, conforme o público.
+
+O acerto por questão usa a primeira tentativa concluída de cada participante por versão publicada. Repetições não entram; versões ficam separadas. A tabela também mostra a fração dos pontos obtidos, incluindo acerto parcial. Nos cenários, acertar é escolher a melhor opção do passo, e o denominador inclui apenas quem passou por ele. Questionários antigos não possuem esse detalhamento.
+
+O administrador consulta todas as trilhas; gerentes, seu eixo e o PlugInfo; organizadores, o PlugInfo. As rotas `GET /api/dashboard` e `GET /api/dashboard/games/{node_id}` aplicam essa permissão no servidor. Os gráficos acompanham o tema e incluem tabelas com os números.
+
 ## Histórico de alterações
 
 A aba **Histórico** registra ações da gestão em correções, atividades, etapas, pessoas, materiais e jogos, com autor, data e campos alterados. O registro é salvo na mesma transação da ação. Nomes e eixos ficam guardados mesmo depois de exclusões; senhas nunca são registradas.
