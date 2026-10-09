@@ -16,7 +16,8 @@
     "test:corrections": "node tests/corrections_journey.cjs",
     "test:assessments": "node tests/assessments_journey.cjs",
     "test:attachments": "node tests/submission_attachments_journey.cjs",
-    "test:manager": "node tests/manager_journey.cjs"
+    "test:manager": "node tests/manager_journey.cjs",
+    "test:profile": "node tests/profile_journey.cjs"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "1.1.4",

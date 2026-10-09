@@ -196,3 +196,13 @@ def migrate(engine):
                 if name not in columns:
                     connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
             connection.execute(text("INSERT INTO schema_migrations(version) VALUES (7)"))
+
+        if 8 not in applied:
+            # Fotos e sugestões são tabelas novas (create_all acima). Quem já usa o
+            # sistema vê uma vez o popup de troca de senha: até aqui ninguém podia trocá-la.
+            columns = {column["name"] for column in inspect(connection).get_columns("users")}
+            for name, definition in {"password_changed_at": "TIMESTAMP",
+                                     "password_prompt_pending": "BOOLEAN NOT NULL DEFAULT TRUE"}.items():
+                if name not in columns:
+                    connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
+            connection.execute(text("INSERT INTO schema_migrations(version) VALUES (8)"))

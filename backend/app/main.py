@@ -21,7 +21,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.database import engine
 from app import models  # noqa: F401  (registra os modelos no Base antes das migrações)
-from app.api import auth, users, materials, nodes, activities, grades, games, gamification
+from app.api import auth, users, materials, nodes, activities, grades, games, gamification, suggestions
 from app.migrations import migrate
 
 # Ensure all tables exist (idempotent — safe to run every startup)
@@ -59,7 +59,8 @@ async def no_store(request, call_next):
     (the Next.js rewrite proxy, Vercel's edge cache) must never reuse one for
     a later request, e.g. replaying a stale 304 for a login POST."""
     response = await call_next(request)
-    response.headers["Cache-Control"] = "no-store"
+    # Uma rota pode pedir cache privado explicitamente (fotos de perfil com versão na URL).
+    response.headers.setdefault("Cache-Control", "no-store")
     return response
 
 # ── Routers ───────────────────────────────────────────────────────────────────
@@ -87,3 +88,4 @@ app.include_router(activities.router, prefix="/api/activities", tags=["activitie
 app.include_router(grades.router,     prefix="/api",            tags=["grades"])
 app.include_router(games.router,      prefix="/api",            tags=["games"])
 app.include_router(gamification.router, prefix="/api/gamification", tags=["gamification"])
+app.include_router(suggestions.router, prefix="/api/suggestions", tags=["suggestions"])

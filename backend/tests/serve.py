@@ -67,11 +67,18 @@ def main():
                     id=account, name=account.capitalize(), email=f'{account}@example.com',
                     type=role, cargo=role, password_hash=password_hash,
                     pontos_acumulados=0, eixo=eixo,
+                    # As jornadas não esperam o aviso de troca de senha; só a conta abaixo o vê.
+                    password_prompt_pending=False,
                 ))
+            db.add(models.User(
+                id='primeiro-acesso', name='Primeiro acesso', email='primeiro-acesso@example.com',
+                type='trainee', cargo='trainee', password_hash=password_hash, pontos_acumulados=0,
+            ))
             db.commit()
         print(f'Banco descartável: {database}', flush=True)
         print('Contas: admin/organizador/membro/trainee@example.com, gerente-<eixo>@example.com e '
-              'membro-<eixo>@example.com (vendas, conexoes, experiencia); senha de teste: qa-test-password', flush=True)
+              'membro-<eixo>@example.com (vendas, conexoes, experiencia), primeiro-acesso@example.com (vê o aviso '
+              'de troca de senha); senha de teste: qa-test-password', flush=True)
         try:
             uvicorn.run(app, host='127.0.0.1', port=args.port)
         finally:

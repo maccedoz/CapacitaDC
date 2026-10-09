@@ -169,6 +169,14 @@ Cenários salvam as decisões no servidor. Os demais formatos mantêm as escolha
 
 Diálogos com ramificações já podem ser representados pelo cenário; uma versão com estado, recursos ou negociação dinâmica seria uma evolução desse formato. Cronômetro, embaralhamento, limite de tentativas e medalhas são recursos compartilhados, não tipos de jogo.
 
+## Meu perfil, aviso de senha e sugestões
+
+- **Meu perfil** (menu do usuário, no cabeçalho, para todos os perfis): a pessoa edita o próprio nome e a própria foto e troca a própria senha informando a atual. E-mail, cargo, eixo e perfil continuam com a gestão. Trocar a senha encerra as outras sessões abertas: tokens emitidos antes da troca deixam de valer.
+- **Foto:** JPEG, PNG ou WebP, até 2 MB, conferida pela assinatura do arquivo. O navegador recorta em quadrado e reduz para 256 px. A imagem fica no banco (`user_photos`) e é servida em `GET /api/users/{id}/photo` à própria pessoa e à gestão que pode ver essa pessoa, com cache privado (a URL muda a cada foto). Sem foto, aparecem as iniciais.
+- **Aviso de troca de senha:** no primeiro acesso, e de novo sempre que a gestão redefinir a senha, aparece "Quer trocar sua senha?", com **Trocar senha** e **Agora não**. Não obriga; qualquer das duas escolhas encerra o aviso. Quem já usava o sistema antes da migração 8 vê o aviso uma vez.
+- **Sugestões:** trainees enviam sugestões e ideias (até 2.000 caracteres) na aba **Sugestões** e veem as que enviaram. Não há anonimato: cada sugestão leva o nome de quem enviou. Administradores e organizadores leem na aba **Sugestões** do painel, com contador de não lidas, e marcam como lida ou não lida.
+- **Biblioteca:** a busca procura no nome, no texto e nos nomes dos documentos, sem diferenciar acentos. Há filtro por tipo (com vídeo, com documento, só texto) e, para membros, por eixo. Materiais com eixo "Todos os eixos" aparecem em qualquer eixo escolhido e também na biblioteca dos trainees.
+
 ## Segurança do acesso
 
 - **Login:** 5 senhas erradas seguidas para o mesmo e-mail bloqueiam o login por 15 minutos (resposta 429, com o tempo restante). Um login certo zera a contagem. O contador fica no banco, porque a API roda em funções serverless. Um e-mail inexistente recebe a mesma resposta e leva o mesmo tempo que uma senha errada.
@@ -199,6 +207,8 @@ Rotas principais (consulte `/docs` na API para o contrato completo):
 | Recurso | Rotas |
 | --- | --- |
 | Sessão | `POST /api/auth/login`, `GET /api/auth/me` |
+| Meu perfil | `PATCH /api/auth/me`, `POST /api/auth/me/password`, `POST /api/auth/me/password-prompt/dismiss`, `PUT/DELETE /api/auth/me/photo`, `GET /api/users/{id}/photo` |
+| Sugestões | `POST /api/suggestions` e `GET /api/suggestions/mine` (trainees), `GET /api/suggestions` e `PATCH /api/suggestions/{id}` (administradores e organizadores) |
 | Saúde | `GET /api/health` (confere o banco) |
 | Pessoas | `GET/POST /api/users`, `PUT/DELETE /api/users/{id}`, `GET /api/users/{id}/profile` (somente gestão: participantes não listam pessoas) |
 | Materiais | `GET/POST /api/materials`, `PUT/DELETE /api/materials/{id}` |

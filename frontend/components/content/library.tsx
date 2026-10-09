@@ -15,6 +15,49 @@ const AXIS_FILTERS = [
   { id: "experiencia", name: "Experiência" },
 ]
 
+const KIND_FILTERS = [
+  { id: "todos", name: "Todos os tipos" },
+  { id: "video", name: "Com vídeo" },
+  { id: "documento", name: "Com documento" },
+  { id: "texto", name: "Só texto" },
+] as const
+
+type Kind = (typeof KIND_FILTERS)[number]["id"]
+
+/** Minúsculas e sem acento, para "conexao" achar "Conexão". */
+function normalize(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR")
+}
+
+function matchesKind(content: ContentItem, kind: Kind): boolean {
+  const hasVideo = (content.videos?.length ?? 0) > 0
+  const hasDocument = (content.documents?.length ?? 0) > 0
+  if (kind === "video") return hasVideo
+  if (kind === "documento") return hasDocument
+  if (kind === "texto") return !hasVideo && !hasDocument
+  return true
+}
+
+function matchesSearch(content: ContentItem, query: string): boolean {
+  if (!query) return true
+  const haystack = [content.name, content.text, ...(content.documents ?? []).map(doc => doc.name)].join(" ")
+  return normalize(haystack).includes(query)
+}
+
+function FilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
+  return (
+    <Button
+      variant={active ? "default" : "outline"}
+      size="sm"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`text-xs h-8 rounded-lg ${active ? "bg-primary text-primary-foreground hover:bg-primary/95" : "hover:bg-secondary/80 border-border"}`}
+    >
+      {children}
+    </Button>
+  )
+}
+
 interface LibraryProps {
   contents: ContentItem[]
   title: string
@@ -24,13 +67,21 @@ interface LibraryProps {
   emptyMessage: string
 }
 
-/** Biblioteca de materiais dos participantes, com busca e filtro opcional por eixo. */
+/**
+ * Biblioteca de materiais dos participantes: busca no nome, no texto e nos nomes dos
+ * documentos, filtro por tipo e, para membros, por eixo. Materiais compartilhados
+ * ("Todos os eixos") aparecem em qualquer eixo escolhido.
+ */
 export function Library({ contents, title, description, axisFilter = false, emptyMessage }: LibraryProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedEixo, setSelectedEixo] = useState("todos")
+  const [kind, setKind] = useState<Kind>("todos")
 
-  const byAxis = selectedEixo === "todos" ? contents : contents.filter(c => c.eixo === selectedEixo)
-  const filtered = byAxis.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
+  const query = normalize(searchQuery.trim())
+  const filtered = contents.filter(content =>
+    (selectedEixo === "todos" || content.eixo === selectedEixo || content.eixo === "all")
+    && matchesKind(content, kind)
+    && matchesSearch(content, query))
 
   return (
     <div className="space-y-6">
@@ -42,7 +93,8 @@ export function Library({ contents, title, description, axisFilter = false, empt
         <div className="relative w-full sm:max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Pesquisar..."
+            placeholder="Pesquisar no nome, texto ou documentos..."
+            aria-label="Pesquisar materiais"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9 bg-secondary border-border text-foreground placeholder:text-muted-foreground"
@@ -50,25 +102,20 @@ export function Library({ contents, title, description, axisFilter = false, empt
         </div>
       </div>
 
-      {axisFilter && (
-        <div className="flex flex-wrap gap-2 pb-2 border-b border-border">
-          {AXIS_FILTERS.map((e) => (
-            <Button
-              key={e.id}
-              variant={selectedEixo === e.id ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSelectedEixo(e.id)}
-              className={`text-xs h-8 rounded-lg ${
-                selectedEixo === e.id
-                  ? "bg-primary text-primary-foreground hover:bg-primary/95"
-                  : "hover:bg-secondary/80 border-border"
-              }`}
-            >
-              {e.name}
-            </Button>
+      <div className="space-y-2 pb-2 border-b border-border">
+        {axisFilter && (
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrar por eixo">
+            {AXIS_FILTERS.map(e => (
+              <FilterButton key={e.id} active={selectedEixo === e.id} onClick={() => setSelectedEixo(e.id)}>{e.name}</FilterButton>
+            ))}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrar por tipo">
+          {KIND_FILTERS.map(k => (
+            <FilterButton key={k.id} active={kind === k.id} onClick={() => setKind(k.id)}>{k.name}</FilterButton>
           ))}
         </div>
-      )}
+      </div>
 
       <div className="grid gap-4">
         {filtered.length === 0 ? (

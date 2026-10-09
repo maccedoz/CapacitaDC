@@ -4,7 +4,7 @@ api/users.py — User & member management endpoints (/api/users/*)
 
 import uuid
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
@@ -12,8 +12,10 @@ from app import models, schemas
 from app.auth import (
     get_password_hash,
     get_current_staff,
+    get_current_user,
 )
 from app.services import access
+from app.services.roles import STAFF
 from app.services.activity_service import axis_metrics
 
 router = APIRouter()
@@ -81,7 +83,7 @@ def create_member(
         cargo=cargo_label,
         type=user_in.type,
         eixo=eixo,
-        photo=user_in.photo or "",
+        photo="",  # a foto é enviada pela própria pessoa, em Meu perfil
         nota_rotacao=None,
         pontos_acumulados=0,
     )
@@ -200,6 +202,8 @@ def update_user(
         user.cargo = "Gerente"
     if user_update.password is not None and user_update.password.strip() != "":
         user.password_hash = get_password_hash(user_update.password)
+        # Senha definida pela gestão: o popup volta a sugerir a troca no próximo acesso.
+        user.password_prompt_pending = True
 
     db.commit()
     db.refresh(user)
@@ -289,3 +293,25 @@ def get_user_profile(
         node_progress=node_progress,
         activity_submissions=activity_submissions,
     )
+
+
+@router.get("/{user_id}/photo")
+def get_user_photo(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """A própria pessoa e a gestão que pode ver essa pessoa."""
+    target = db.get(models.User, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    if target.id != current_user.id:
+        if current_user.type not in STAFF:
+            raise HTTPException(status_code=403, detail="Acesso não autorizado.")
+        access.ensure_user_access(current_user, target)
+    photo = db.get(models.UserPhoto, user_id)
+    if photo is None:
+        raise HTTPException(status_code=404, detail="Sem foto")
+    # A URL tem a versão da foto (?v=...), então ela pode ficar em cache privado.
+    return Response(content=photo.data, media_type=photo.content_type,
+                    headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"})

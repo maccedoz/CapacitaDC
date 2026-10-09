@@ -1,6 +1,6 @@
 import uuid
 from datetime import timezone
-from sqlalchemy import Column, String, Float, Boolean, ForeignKey, Text, Integer, DateTime, JSON, UniqueConstraint, true
+from sqlalchemy import Column, String, Float, Boolean, ForeignKey, Text, Integer, DateTime, JSON, LargeBinary, UniqueConstraint, true
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import TypeDecorator
 from app.database import Base
@@ -41,6 +41,10 @@ class User(Base):
     # porque a API roda em funções serverless, sem memória compartilhada).
     failed_login_attempts = Column(Integer, default=0, nullable=False)
     locked_until = Column(UTCDateTime, nullable=True)
+    # Troca da própria senha: tokens emitidos antes deixam de valer.
+    password_changed_at = Column(UTCDateTime, nullable=True)
+    # Popup que sugere trocar a senha definida pela gestão; some ao trocar ou dispensar.
+    password_prompt_pending = Column(Boolean, default=True, nullable=False)
 
     # Relationships
     node_progress = relationship("UserNodeProgress", back_populates="user", cascade="all, delete-orphan")
@@ -272,3 +276,24 @@ class MaterialUpload(Base):
     storage_key = Column(String, unique=True, nullable=False)
     user_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     eixo = Column(String, nullable=True)  # eixo do gerente que enviou; nulo para os demais perfis
+
+
+class UserPhoto(Base):
+    """Foto de perfil já recortada e reduzida no navegador (algumas dezenas de KB)."""
+    __tablename__ = "user_photos"
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    content_type = Column(String, nullable=False)
+    data = Column(LargeBinary, nullable=False)
+    updated_at = Column(UTCDateTime, nullable=False)
+
+
+class Suggestion(Base):
+    """Sugestão ou ideia enviada por um trainee; administradores e organizadores leem."""
+    __tablename__ = "suggestions"
+    id = Column(String, primary_key=True, default=generate_uuid)
+    author_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    author_name = Column(String, nullable=False)  # guardado no envio, para continuar legível se a conta sair
+    text = Column(Text, nullable=False)
+    created_at = Column(UTCDateTime, nullable=False)
+    read_at = Column(UTCDateTime, nullable=True)
+    read_by_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

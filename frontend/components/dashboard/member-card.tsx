@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { UserAvatar } from "@/components/user-avatar"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ExternalLink } from "lucide-react"
@@ -18,23 +18,11 @@ interface MemberCardProps {
 
 export function MemberCard({ id, name, eixo, cargo, photo, showProfile = false }: MemberCardProps) {
   const router = useRouter()
-  const initials = name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase()
-
   return (
     <Card className="border-border/50 bg-card hover:border-primary/50 transition-all duration-200">
       <CardContent className="p-4">
         <div className="flex items-center gap-4">
-          <Avatar className="h-12 w-12 border-2 border-primary/30 shrink-0">
-            <AvatarImage src={photo || "/placeholder.svg"} alt={name} />
-            <AvatarFallback className="bg-primary/20 text-primary font-semibold">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar name={name} photo={photo} className="h-12 w-12 border-2 border-primary/30 shrink-0" />
           <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-foreground truncate">{name}</h3>
             <p className="text-sm text-muted-foreground truncate">{cargo}</p>

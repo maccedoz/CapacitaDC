@@ -27,11 +27,12 @@ def get_password_hash(password: str) -> str:
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + (
+    now = datetime.now(timezone.utc)
+    expire = now + (
         expires_delta if expires_delta is not None
         else timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "iat": int(now.timestamp())})
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
 
@@ -61,6 +62,12 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme), db: Session 
         user = db.query(models.User).filter(models.User.id == subject).first()
     if user is None:
         raise credentials_exception
+    # Quem troca a própria senha derruba as sessões abertas antes da troca.
+    if user.password_changed_at is not None:
+        changed = int(user.password_changed_at.replace(tzinfo=timezone.utc).timestamp())
+        issued = payload.get("iat")
+        if not isinstance(issued, (int, float)) or issued < changed:
+            raise credentials_exception
     return user
 
 def get_current_admin(current_user: models.User = Depends(get_current_user)) -> models.User:

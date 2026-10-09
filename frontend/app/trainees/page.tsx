@@ -4,6 +4,7 @@ import { useState } from "react"
 import { asUtcDate } from "@/lib/datetime"
 import { AppHeader } from "@/components/app-header"
 import { Library } from "@/components/content/library"
+import { TraineeSuggestions } from "@/components/suggestions/trainee-suggestions"
 import { NodeReaderDialog } from "@/components/participant/node-reader-dialog"
 import { TrainingPath } from "@/components/dashboard/training-path"
 import { TrailCelebration } from "@/components/dashboard/trail-celebration"
@@ -13,7 +14,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  BookOpen, CheckCircle2, ClipboardList, Clock, Compass, GraduationCap, Upload, XCircle,
+  BookOpen, CheckCircle2, ClipboardList, Clock, Compass, GraduationCap, Lightbulb, Upload, XCircle,
 } from "lucide-react"
 
 import { useParticipantPortal } from "@/features/participant/hooks"
@@ -85,6 +86,10 @@ export default function TraineesPage() {
             <TabsTrigger value="biblioteca" className="gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               <BookOpen className="h-4 w-4" />
               Biblioteca
+            </TabsTrigger>
+            <TabsTrigger value="sugestoes" className="gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              <Lightbulb className="h-4 w-4" />
+              Sugestões
             </TabsTrigger>
           </TabsList>
 
@@ -192,11 +197,16 @@ export default function TraineesPage() {
           {/* TAB: Biblioteca */}
           <TabsContent value="biblioteca">
             <Library
-              contents={contents.filter(c => c.eixo === "trainee")}
+              contents={contents.filter(c => c.eixo === "trainee" || c.eixo === "all")}
               title="Biblioteca de Trainees"
               description="Consulte os materiais didáticos da sua capacitação."
               emptyMessage="Nenhum material encontrado."
             />
+          </TabsContent>
+
+          {/* TAB: Sugestões */}
+          <TabsContent value="sugestoes">
+            <TraineeSuggestions />
           </TabsContent>
         </Tabs>
       </div>

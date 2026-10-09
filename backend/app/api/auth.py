@@ -4,10 +4,11 @@ api/auth.py — Authentication endpoints (/api/auth/*)
 Não há cadastro público: só a gestão cadastra pessoas, pelo painel (POST /api/users).
 """
 
+import hashlib
 import math
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -77,4 +78,88 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=schemas.UserOut)
 def read_current_user(current_user: models.User = Depends(get_current_user)):
+    return current_user
+
+
+# ── Meu perfil ────────────────────────────────────────────────────────────────
+# Cada pessoa edita só o próprio nome e a própria foto e troca a própria senha.
+# E-mail, cargo, eixo e perfil continuam com a gestão.
+
+MAX_PHOTO_SIZE = 2 * 1024 * 1024
+PHOTO_TYPES = {"image/jpeg": (b"\xff\xd8\xff",), "image/png": (b"\x89PNG\r\n\x1a\n",)}
+
+
+def _photo_type(contents: bytes) -> str | None:
+    if contents[:4] == b"RIFF" and contents[8:12] == b"WEBP":
+        return "image/webp"
+    for content_type, signatures in PHOTO_TYPES.items():
+        if contents.startswith(signatures):
+            return content_type
+    return None
+
+
+@router.patch("/me", response_model=schemas.UserOut)
+def update_my_profile(profile: schemas.ProfileUpdate, db: Session = Depends(get_db),
+                      current_user: models.User = Depends(get_current_user)):
+    current_user.name = profile.name
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.post("/me/password", response_model=schemas.Token)
+def change_my_password(change: schemas.PasswordChange, db: Session = Depends(get_db),
+                       current_user: models.User = Depends(get_current_user)):
+    if not verify_password(change.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="A senha atual não confere.")
+    current_user.password_hash = get_password_hash(change.new_password)
+    current_user.password_changed_at = datetime.now(timezone.utc)
+    current_user.password_prompt_pending = False
+    db.commit()
+    db.refresh(current_user)
+    # As outras sessões caem; esta recebe um token novo, emitido depois da troca.
+    access_token = create_access_token(data={"sub": current_user.id, "sub_type": "user_id"})
+    return {"access_token": access_token, "token_type": "bearer", "user": current_user}
+
+
+@router.post("/me/password-prompt/dismiss", response_model=schemas.UserOut)
+def dismiss_password_prompt(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    current_user.password_prompt_pending = False
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.put("/me/photo", response_model=schemas.UserOut)
+async def upload_my_photo(file: UploadFile = File(...), db: Session = Depends(get_db),
+                          current_user: models.User = Depends(get_current_user)):
+    contents = await file.read()
+    if len(contents) > MAX_PHOTO_SIZE:
+        raise HTTPException(status_code=413, detail="A foto excede o limite de 2 MB.")
+    content_type = _photo_type(contents)
+    if content_type is None:
+        raise HTTPException(status_code=400, detail="Envie uma imagem JPEG, PNG ou WebP.")
+    photo = db.get(models.UserPhoto, current_user.id)
+    if photo is None:
+        photo = models.UserPhoto(user_id=current_user.id)
+        db.add(photo)
+    photo.content_type = content_type
+    photo.data = contents
+    photo.updated_at = datetime.now(timezone.utc)
+    # A versão na URL muda a cada foto, então o navegador pode guardar a anterior em cache.
+    version = hashlib.sha256(contents).hexdigest()[:12]
+    current_user.photo = f"/api/users/{current_user.id}/photo?v={version}"
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.delete("/me/photo", response_model=schemas.UserOut)
+def delete_my_photo(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    photo = db.get(models.UserPhoto, current_user.id)
+    if photo is not None:
+        db.delete(photo)
+    current_user.photo = ""
+    db.commit()
+    db.refresh(current_user)
     return current_user

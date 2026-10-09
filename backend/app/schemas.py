@@ -43,8 +43,51 @@ class UserOut(UserBase):
     nota_rotacao: Optional[float] = None
     pontos_acumulados: int = 0
     rotacao: Optional[int] = None
+    password_prompt_pending: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+class ProfileUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def name_not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("Informe o nome.")
+        return value.strip()
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=MIN_PASSWORD_LENGTH)
+
+
+class SuggestionCreate(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("text")
+    @classmethod
+    def text_not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("Escreva a sugestão.")
+        return value.strip()
+
+
+class SuggestionOut(BaseModel):
+    id: str
+    author_id: Optional[str] = None
+    author_name: str
+    text: str
+    created_at: UtcInstantOut
+    read_at: Optional[UtcInstantOut] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SuggestionUpdate(BaseModel):
+    read: bool
+
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
