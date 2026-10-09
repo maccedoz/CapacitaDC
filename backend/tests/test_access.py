@@ -32,6 +32,42 @@ class AccessTests(unittest.TestCase):
         with self.api.sessions() as db:
             self.assertIsNone(db.query(models.User).filter(models.User.email == 'novo@example.com').first())
 
+    def test_member_email_must_belong_to_the_company_domain(self):
+        error = 'E-mail de membro precisa terminar em @infojr.com.br.'
+        payload = {'name': 'Novo membro', 'cargo': 'membro', 'type': 'membro', 'eixo': 'vendas', 'password': 'test-only'}
+        for email in ['novo@example.com', 'novo@infojr.com.br.example.com', 'novo@outrainfojr.com']:
+            with self.subTest(email=email):
+                status, result = self.request('POST', '/api/users', {**payload, 'email': email})
+                self.assertEqual((status, result['detail']), (422, error))
+        status, created = self.request('POST', '/api/users', {**payload, 'email': '  Novo@InfoJr.com.br '})
+        self.assertEqual(status, 200, created)
+        # Trainees e demais perfis não têm a exigência.
+        status, trainee = self.request('POST', '/api/users', {**payload, 'type': 'trainee', 'cargo': 'trainee',
+                                                              'eixo': None, 'email': 'trainee2@example.com'})
+        self.assertEqual(status, 200, trainee)
+
+        path = f"/api/users/{created['id']}"
+        status, result = self.request('PUT', path, {'email': 'outro@example.com'})
+        self.assertEqual((status, result['detail']), (422, error))
+        self.assertEqual(self.request('PUT', path, {'email': 'outro@infojr.com.br'})[0], 200)
+        # Virar membro também exige o domínio.
+        promote = {'type': 'membro', 'cargo': 'membro', 'eixo': 'vendas'}
+        status, result = self.request('PUT', f"/api/users/{trainee['id']}", promote)
+        self.assertEqual((status, result['detail']), (422, error))
+        with self.api.sessions() as db:
+            self.assertEqual(db.get(models.User, trainee['id']).type, 'trainee')
+        status, result = self.request('PUT', f"/api/users/{trainee['id']}", {**promote, 'email': 'trainee2@infojr.com.br'})
+        self.assertEqual((status, result['type']), (200, 'membro'))
+
+    def test_legacy_member_with_another_domain_stays_editable_until_the_email_changes(self):
+        # O membro 'membro' foi criado com @example.com, antes da regra.
+        status, result = self.request('PUT', '/api/users/membro', {'name': 'Renomeado', 'email': 'membro@example.com'})
+        self.assertEqual((status, result['name']), (200, 'Renomeado'))
+        self.assertEqual(self.request('PUT', '/api/users/membro', {'password': 'nova-senha'})[0], 200)
+        self.assertEqual(self.request('PUT', '/api/users/membro', {'email': 'novo@example.com'})[0], 422)
+        with self.api.sessions() as db:
+            self.assertEqual(db.get(models.User, 'membro').email, 'membro@example.com')
+
     def login(self, email, password):
         return self.request('POST', '/api/auth/login', {'email': email, 'password': password}, role=None)
 
@@ -177,24 +213,24 @@ class AccessTests(unittest.TestCase):
             db.get(models.TrainingNode, node['id']).deadline = datetime(2030, 1, 3, 17)
             db.commit()
         _, listing = self.request('GET', '/api/activities', role='trainee')
-        self.assertEqual(listing[0]['deadline'], '2030-01-02T17:00:00Z')
+        # O prazo efetivo vem da etapa; a coluna da atividade fica intacta.
+        self.assertEqual((listing[0]['deadline'], listing[0]['deadline_from_trail']), ('2030-01-03T17:00:00Z', True))
         _, nodes = self.request('GET', '/api/nodes', role='trainee')
         self.assertEqual(nodes[0]['deadline'], '2030-01-03T17:00:00Z')
         status, content = self.request('GET', f"/api/nodes/{node['id']}/content", role='trainee')
         self.assertEqual(status, 200, content)
         self.assertEqual(content['node']['deadline'], '2030-01-03T17:00:00Z')
-        self.assertEqual(content['activity']['deadline'], '2030-01-02T17:00:00Z')
+        self.assertEqual(content['activity']['deadline'], '2030-01-03T17:00:00Z')
         with self.api.sessions() as db:
             self.assertEqual(db.get(models.Activity, activity['id']).deadline, datetime(2030, 1, 2, 17))
 
     def test_submissions_close_at_the_deadline_instant(self):
-        activity = self.create('activities', {
-            'title': 'Atividade', 'eixo': 'trainee', 'accepts_file': False, 'deadline': '2030-01-02T14:00:00-03:00',
-        })
-        node = self.create('nodes', {'type': 'activity', 'eixo': 'trainee', 'activity_id': activity['id'], 'is_released': True})
+        activity = self.create('activities', {'title': 'Atividade', 'eixo': 'trainee', 'accepts_file': False})
+        node = self.create('nodes', {'type': 'activity', 'eixo': 'trainee', 'activity_id': activity['id'],
+                                     'is_released': True, 'deadline': '2030-01-02T14:00:00-03:00'})
         deadline = datetime(2030, 1, 2, 17, tzinfo=timezone.utc)
         for delta, is_open in [(timedelta(microseconds=-1), True), (timedelta(), False), (timedelta(microseconds=1), False)]:
-            with self.subTest(delta=delta), patch('app.services.activity_service.datetime') as clock:
+            with self.subTest(delta=delta), patch('app.services.node_service.datetime') as clock:
                 clock.now.return_value = deadline + delta
                 _, listing = self.request('GET', '/api/activities', role='trainee')
                 self.assertEqual(listing[0]['effective_open'], is_open)

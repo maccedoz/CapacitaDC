@@ -35,6 +35,21 @@ def is_effectively_released(node: models.TrainingNode) -> bool:
     return released_at <= now
 
 
+def deadline_passed(deadline) -> bool:
+    """True a partir do instante do prazo. Sem prazo, nunca passa."""
+    if deadline is None:
+        return False
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+    return deadline <= datetime.now(timezone.utc)
+
+
+def ensure_before_node_deadline(node: models.TrainingNode) -> None:
+    """O prazo da etapa encerra jogos e entregas feitas por ela; a melhor nota já obtida fica."""
+    if deadline_passed(node.deadline):
+        raise HTTPException(status_code=400, detail="O prazo desta etapa terminou.")
+
+
 # ---------------------------------------------------------------------------
 # Query / listing
 # ---------------------------------------------------------------------------
@@ -289,6 +304,7 @@ def submit_game_score(
 
     if progress and progress.completed and not node.allow_retry:
         raise HTTPException(409, "Este jogo não permite repetição.")
+    ensure_before_node_deadline(node)
     score_added = 0
     if not progress:
         progress = models.UserNodeProgress(

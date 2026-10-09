@@ -64,6 +64,14 @@ export function isStaff(type?: string | null): boolean {
   return type === "admin" || type === "organizador" || type === "gerente"
 }
 
+/** Membros são da empresa: o e-mail precisa ser do domínio dela (a API confere o mesmo). */
+export const MEMBER_EMAIL_DOMAIN = "@infojr.com.br"
+export const MEMBER_EMAIL_ERROR = `E-mail de membro precisa terminar em ${MEMBER_EMAIL_DOMAIN}.`
+
+export function isMemberEmail(email: string): boolean {
+  return email.trim().toLowerCase().endsWith(MEMBER_EMAIL_DOMAIN)
+}
+
 /** Eixo administrado por um gerente; null para os demais perfis. */
 export function managerAxis(user?: { type: string; eixo?: string | null } | null): MemberAxis | null {
   return user?.type === "gerente" ? normalizeAxis(user.eixo) : null

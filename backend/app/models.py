@@ -41,8 +41,9 @@ class User(Base):
     # porque a API roda em funções serverless, sem memória compartilhada).
     failed_login_attempts = Column(Integer, default=0, nullable=False)
     locked_until = Column(UTCDateTime, nullable=True)
-    # Troca da própria senha: tokens emitidos antes deixam de valer.
+    # Troca da própria senha: sobe a versão da sessão, e tokens com a versão antiga deixam de valer.
     password_changed_at = Column(UTCDateTime, nullable=True)
+    token_version = Column(Integer, default=0, nullable=False)
     # Popup que sugere trocar a senha definida pela gestão; some ao trocar ou dispensar.
     password_prompt_pending = Column(Boolean, default=True, nullable=False)
 

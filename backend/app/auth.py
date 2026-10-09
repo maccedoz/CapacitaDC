@@ -25,6 +25,11 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
+def session_token(user: models.User) -> str:
+    """Token de sessão de uma pessoa, na versão de sessão atual dela."""
+    return create_access_token(data={"sub": user.id, "sub_type": "user_id", "ver": user.token_version or 0})
+
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
     now = datetime.now(timezone.utc)
@@ -62,12 +67,10 @@ def get_current_user(token: Optional[str] = Depends(oauth2_scheme), db: Session 
         user = db.query(models.User).filter(models.User.id == subject).first()
     if user is None:
         raise credentials_exception
-    # Quem troca a própria senha derruba as sessões abertas antes da troca.
-    if user.password_changed_at is not None:
-        changed = int(user.password_changed_at.replace(tzinfo=timezone.utc).timestamp())
-        issued = payload.get("iat")
-        if not isinstance(issued, (int, float)) or issued < changed:
-            raise credentials_exception
+    # Quem troca a própria senha derruba as sessões abertas antes da troca: o token
+    # carrega a versão da sessão em que foi emitido (tokens antigos, sem ela, são a 0).
+    if payload.get("ver", 0) != (user.token_version or 0):
+        raise credentials_exception
     return user
 
 def get_current_admin(current_user: models.User = Depends(get_current_user)) -> models.User:

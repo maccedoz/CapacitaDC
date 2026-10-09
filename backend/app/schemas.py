@@ -397,7 +397,9 @@ class ActivityOut(BaseModel):
     description: Optional[str] = ""
     eixo: str
     accepts_file: bool
+    # Prazo efetivo: numa atividade da trilha, vem das etapas (o mais tardio).
     deadline: Optional[UtcInstantOut] = None
+    deadline_from_trail: bool = False
     is_open: bool
     weight: float = 1.0
     allow_retry: bool = True

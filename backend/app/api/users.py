@@ -28,6 +28,14 @@ CARGO_LABELS = {
     "gerente": "Gerente",
 }
 
+MEMBER_EMAIL_DOMAIN = "@infojr.com.br"
+
+
+def _ensure_member_email(email: str | None) -> None:
+    """Membros são da empresa: o e-mail precisa ser do domínio dela."""
+    if not (email or "").strip().lower().endswith(MEMBER_EMAIL_DOMAIN):
+        raise HTTPException(status_code=422, detail=f"E-mail de membro precisa terminar em {MEMBER_EMAIL_DOMAIN}.")
+
 
 def _scoped_to_manager(db: Session, current_user: models.User, user: models.User) -> schemas.UserOut:
     """Totals a manager sees: members count only the manager's axis; trainees, as for organizers."""
@@ -69,6 +77,8 @@ def create_member(
     eixo = access.validate_user_assignment(current_user, role=user_in.type, eixo=user_in.eixo)
     if current_user.type == "gerente" and user_in.cargo.strip().lower() != user_in.type:
         raise HTTPException(status_code=403, detail="Gerentes cadastram apenas membros do próprio eixo e trainees.")
+    if user_in.type == "membro":
+        _ensure_member_email(user_in.email)
 
     if db.query(models.User).filter(models.User.email == user_in.email).first():
         raise HTTPException(status_code=400, detail="Este email já está cadastrado")
@@ -182,6 +192,11 @@ def update_user(
     if (current_user.type == "gerente" and user_update.cargo is not None
             and user_update.cargo.strip().lower() != (user.cargo or "").strip().lower()):
         raise HTTPException(status_code=403, detail="Gerentes não podem alterar o cargo do membro.")
+    # Membros antigos com outro domínio continuam editáveis até alguém mexer no e-mail.
+    email_changed = (user_update.email is not None
+                     and user_update.email.strip().lower() != (user.email or "").strip().lower())
+    if role == "membro" and (email_changed or user.type != "membro"):
+        _ensure_member_email(user_update.email if user_update.email is not None else user.email)
 
     if user_update.name is not None:
         user.name = user_update.name

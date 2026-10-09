@@ -16,8 +16,8 @@ from app import models, schemas
 from app.auth import (
     get_password_hash,
     verify_password,
-    create_access_token,
     get_current_user,
+    session_token,
 )
 
 router = APIRouter()
@@ -72,7 +72,7 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
         user.failed_login_attempts = 0
         user.locked_until = None
         db.commit()
-    access_token = create_access_token(data={"sub": user.id, "sub_type": "user_id"})
+    access_token = session_token(user)
     return {"access_token": access_token, "token_type": "bearer", "user": user}
 
 
@@ -114,12 +114,12 @@ def change_my_password(change: schemas.PasswordChange, db: Session = Depends(get
         raise HTTPException(status_code=400, detail="A senha atual não confere.")
     current_user.password_hash = get_password_hash(change.new_password)
     current_user.password_changed_at = datetime.now(timezone.utc)
+    current_user.token_version = (current_user.token_version or 0) + 1
     current_user.password_prompt_pending = False
     db.commit()
     db.refresh(current_user)
     # As outras sessões caem; esta recebe um token novo, emitido depois da troca.
-    access_token = create_access_token(data={"sub": current_user.id, "sub_type": "user_id"})
-    return {"access_token": access_token, "token_type": "bearer", "user": current_user}
+    return {"access_token": session_token(current_user), "token_type": "bearer", "user": current_user}
 
 
 @router.post("/me/password-prompt/dismiss", response_model=schemas.UserOut)
