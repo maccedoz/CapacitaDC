@@ -228,3 +228,11 @@ def migrate(engine):
                         "AND COALESCE(activity_id, reference_id) IN (SELECT id FROM activities WHERE deadline IS NOT NULL)"
                     ))
             connection.execute(text("INSERT INTO schema_migrations(version) VALUES (9)"))
+
+        if 10 not in applied:
+            # Histórico (audit_logs) é tabela nova; a entrega guarda quem lançou a nota atual.
+            columns = {column["name"] for column in inspect(connection).get_columns("activity_submissions")}
+            for name, definition in {"graded_by_id": "VARCHAR", "graded_at": "TIMESTAMP"}.items():
+                if name not in columns:
+                    connection.execute(text(f"ALTER TABLE activity_submissions ADD COLUMN {name} {definition}"))
+            connection.execute(text("INSERT INTO schema_migrations(version) VALUES (10)"))
