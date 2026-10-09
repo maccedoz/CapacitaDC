@@ -16,6 +16,8 @@ export interface User {
   photo?: string
   nota_rotacao?: number
   pontos_acumulados?: number
+  /** A senha foi definida pela gestão e a pessoa ainda não trocou nem dispensou o aviso. */
+  password_prompt_pending?: boolean
 }
 
 interface AuthContextType {
@@ -24,6 +26,10 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; user?: User }>
   logout: () => void
   refreshUser: () => Promise<void>
+  /** Atualiza o usuário da sessão depois de uma alteração feita por ele mesmo. */
+  setCurrentUser: (user: User) => void
+  /** Troca o token da sessão (a troca de senha derruba os tokens antigos). */
+  applySession: (token: string, user: User) => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -116,8 +122,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const setCurrentUser = useCallback((updated: User) => {
+    setUser(updated)
+    localStorage.setItem("currentUser", JSON.stringify(updated))
+  }, [])
+
+  const applySession = useCallback((token: string, updated: User) => {
+    localStorage.setItem("token", token)
+    setCurrentUser(updated)
+  }, [setCurrentUser])
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, refreshUser, setCurrentUser, applySession }}>
       {children}
     </AuthContext.Provider>
   )

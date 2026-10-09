@@ -8,9 +8,10 @@ import { useActivities } from "@/features/activities/hooks"
 import { useMaterials } from "@/features/materials/hooks"
 import { useNodes } from "@/features/nodes/hooks"
 import { useUsers } from "@/features/users/hooks"
+import { useSuggestions } from "@/features/suggestions/hooks"
 
-export type DashboardTab = "usuarios" | "materiais" | "atividades" | "correcoes" | "notas" | "trilha"
-export const DASHBOARD_TABS: DashboardTab[] = ["usuarios", "materiais", "atividades", "correcoes", "notas", "trilha"]
+export type DashboardTab = "usuarios" | "materiais" | "atividades" | "correcoes" | "notas" | "trilha" | "sugestoes"
+export const DASHBOARD_TABS: DashboardTab[] = ["usuarios", "materiais", "atividades", "correcoes", "notas", "trilha", "sugestoes"]
 
 /** Dados e escopo compartilhados pelas abas do painel da gestão. */
 export interface DashboardData {
@@ -27,6 +28,8 @@ export interface DashboardData {
   users: ReturnType<typeof useUsers>
   nodes: ReturnType<typeof useNodes>
   activities: ReturnType<typeof useActivities>
+  /** Sugestões dos trainees; só para administradores e organizadores. */
+  suggestions: ReturnType<typeof useSuggestions> | null
   activitySubTab: string
   setActivitySubTab: (tab: string) => void
   navigate: (tab: DashboardTab, activitySubTab?: string) => void

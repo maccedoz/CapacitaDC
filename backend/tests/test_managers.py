@@ -161,7 +161,7 @@ class ManagerTests(unittest.TestCase):
                                                   ('DELETE', f'/api/users/{target}', None)]:
                         self.assertEqual(self.request(method, path, payload, role=manager)[0], 403, (method, target))
                 status, body = self.request('POST', '/api/users', {
-                    'name': 'Novo', 'email': f'novo_{axis}@example.com', 'cargo': 'membro', 'type': 'membro',
+                    'name': 'Novo', 'email': f'novo_{axis}@infojr.com.br', 'cargo': 'membro', 'type': 'membro',
                     'eixo': axis, 'password': 'test-only'}, role=manager)
                 self.assertEqual(status, 200, body)
                 self.assertEqual((body['type'], body['eixo'], body['cargo']), ('membro', axis, 'Membro'))
@@ -211,7 +211,8 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(self.request('PUT', '/api/users/gerente_vendas', {'eixo': 'conexoes'})[0], 200)
         _, listing = self.request('GET', '/api/users', role=None, token=token)
         self.assertEqual(members(listing), ['membro_conexoes'])
-        self.assertEqual(self.request('PUT', '/api/users/gerente_vendas', {'type': 'membro', 'cargo': 'membro'})[0], 200)
+        self.assertEqual(self.request('PUT', '/api/users/gerente_vendas', {'type': 'membro', 'cargo': 'membro',
+                                                                       'email': 'gerente_vendas@infojr.com.br'})[0], 200)
         self.assertEqual(self.request('GET', '/api/grades', role=None, token=token)[0], 403)
         self.assertEqual(self.request('POST', '/api/materials', {'name': 'X', 'type': 'membro', 'eixo': 'conexoes'},
                                       role=None, token=token)[0], 403)

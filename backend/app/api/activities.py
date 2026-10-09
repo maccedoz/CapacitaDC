@@ -20,7 +20,7 @@ from app.services.roles import STAFF
 from app.services.node_service import blocked_activity_ids, lock_user
 from app.services.assessment_service import validate_settings, effective_grade
 from app.services.activity_service import (
-    activity_weight, graded_user_ids, is_effectively_open,
+    activity_deadline, activity_deadlines, activity_weight, graded_user_ids, is_effectively_open,
     recompute_user_grade, recompute_users_grades, submission_to_out,
 )
 from app.services.access import (
@@ -46,8 +46,7 @@ def _submission_activity(db, activity_id, user, node_id=None):
     if activity is None:
         raise HTTPException(404, "Atividade não encontrada")
     ensure_activity_access(user, activity)
-    if not is_effectively_open(activity):
-        raise HTTPException(400, "Esta atividade está fechada e não aceita mais envios")
+    _ensure_accepting(db, activity, node_id)
     _submission_nodes(db, activity, user, node_id)
     if not activity.allow_retry and db.query(models.ActivitySubmission).filter_by(activity_id=activity.id, user_id=user.id).first():
         raise HTTPException(409, "Esta atividade não permite repetição.")
@@ -147,6 +146,22 @@ def _validate_material_link(db: Session, user: models.User, material_id: str | N
     ensure_material_access(user, material, manage=True)
 
 
+def _ensure_accepting(db: Session, activity: models.Activity, node_id: str | None) -> None:
+    """Recusa a entrega com a atividade fechada ou o prazo vencido.
+
+    Pela etapa, vale o prazo dela; sem etapa informada, o prazo efetivo da
+    atividade (o mais tardio das etapas vinculadas, ou o próprio fora da trilha).
+    """
+    node = db.get(models.TrainingNode, node_id) if node_id else None
+    if node is not None and node.type == "activity" and node.activity_id == activity.id:
+        deadline = node.deadline
+    else:
+        # Etapa inválida: `_submission_nodes` responde com o erro adequado.
+        deadline, _ = activity_deadline(db, activity)
+    if not is_effectively_open(activity, deadline):
+        raise HTTPException(400, "Esta atividade está fechada e não aceita mais envios")
+
+
 def _submission_nodes(
     db: Session,
     activity: models.Activity,
@@ -221,6 +236,7 @@ def get_activities(
     blocked_activities = blocked_activity_ids(db, current_user)
     activities = [act for act in activities if act.id not in blocked_activities]
     activity_ids = [act.id for act in activities]
+    deadlines = activity_deadlines(db, activities)
     followed = access.managed_user_ids(db, current_user) if current_user.type == "gerente" else None
 
     # Contagem e entrega própria em consultas únicas, não uma por atividade.
@@ -245,7 +261,8 @@ def get_activities(
 
     result = []
     for act in activities:
-        effective_open = is_effectively_open(act)
+        deadline, from_trail = deadlines[act.id]
+        effective_open = is_effectively_open(act, deadline)
         submission_count = submission_counts.get(act.id, 0)
 
         my_submission = None
@@ -259,7 +276,8 @@ def get_activities(
             description=act.description,
             eixo=act.eixo,
             accepts_file=act.accepts_file,
-            deadline=act.deadline,
+            deadline=deadline,
+            deadline_from_trail=from_trail,
             is_open=act.is_open,
             weight=activity_weight(act),
             allow_retry=act.allow_retry, is_required=act.is_required,
@@ -313,7 +331,7 @@ def create_activity(
         created_by=new_activity.created_by,
         created_at=new_activity.created_at,
         material_id=new_activity.material_id,
-        effective_open=is_effectively_open(new_activity),
+        effective_open=is_effectively_open(new_activity, new_activity.deadline),
         submission_count=0,
         my_submission=None,
     )
@@ -362,6 +380,7 @@ def update_activity(
     recompute_users_grades(db, affected)
     db.commit()
     db.refresh(activity)
+    deadline, from_trail = activity_deadline(db, activity)
 
     return schemas.ActivityOut(
         id=activity.id,
@@ -369,14 +388,15 @@ def update_activity(
         description=activity.description,
         eixo=activity.eixo,
         accepts_file=activity.accepts_file,
-        deadline=activity.deadline,
+        deadline=deadline,
+        deadline_from_trail=from_trail,
         is_open=activity.is_open,
         weight=activity_weight(activity),
         allow_retry=activity.allow_retry, is_required=activity.is_required,
         created_by=activity.created_by,
         created_at=activity.created_at,
         material_id=activity.material_id,
-        effective_open=is_effectively_open(activity),
+        effective_open=is_effectively_open(activity, deadline),
         submission_count=sum(access.can_manage_user(current_user, sub.user) for sub in activity.submissions),
         my_submission=None,
     )
@@ -430,10 +450,7 @@ def submit_activity(
     if not activity:
         raise HTTPException(status_code=404, detail="Atividade não encontrada")
     ensure_activity_access(current_user, activity)
-    if not is_effectively_open(activity):
-        raise HTTPException(
-            status_code=400, detail="Esta atividade está fechada e não aceita mais envios"
-        )
+    _ensure_accepting(db, activity, getattr(submission_in, "node_id", None))
     file_url = (submission_in.file_url or "").strip() or None
     comment = (submission_in.comment or "").strip()
     attachment_ids = submission_in.attachment_ids

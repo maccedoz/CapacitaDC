@@ -196,3 +196,35 @@ def migrate(engine):
                 if name not in columns:
                     connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
             connection.execute(text("INSERT INTO schema_migrations(version) VALUES (7)"))
+
+        if 8 not in applied:
+            # Fotos e sugestões são tabelas novas (create_all acima). Quem já usa o
+            # sistema vê uma vez o popup de troca de senha: até aqui ninguém podia trocá-la.
+            columns = {column["name"] for column in inspect(connection).get_columns("users")}
+            for name, definition in {"password_changed_at": "TIMESTAMP",
+                                     "token_version": "INTEGER NOT NULL DEFAULT 0",
+                                     "password_prompt_pending": "BOOLEAN NOT NULL DEFAULT TRUE"}.items():
+                if name not in columns:
+                    connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
+            connection.execute(text("INSERT INTO schema_migrations(version) VALUES (8)"))
+
+        if 9 not in applied:
+            # O prazo passa a ser definido pela etapa da trilha. Etapas de atividade sem
+            # prazo herdam o da atividade, para nenhuma entrega fechar antes ou depois do
+            # que fechava; onde os dois existem, o da etapa passa a valer sem alteração.
+            # A coluna da atividade continua valendo fora da trilha e fica copiada antes.
+            node_columns = {column["name"] for column in inspect(connection).get_columns("training_nodes")}
+            activity_columns = {column["name"] for column in inspect(connection).get_columns("activities")}
+            if "deadline" in activity_columns:
+                connection.execute(text(
+                    "CREATE TABLE IF NOT EXISTS activity_deadline_backup_v9 AS SELECT id, deadline FROM activities"
+                ))
+                if {"type", "deadline", "activity_id", "reference_id"} <= node_columns:
+                    # Etapas antigas guardavam a atividade em reference_id, como na leitura da etapa.
+                    connection.execute(text(
+                        "UPDATE training_nodes SET deadline = (SELECT a.deadline FROM activities a "
+                        "WHERE a.id = COALESCE(training_nodes.activity_id, training_nodes.reference_id)) "
+                        "WHERE type = 'activity' AND deadline IS NULL "
+                        "AND COALESCE(activity_id, reference_id) IN (SELECT id FROM activities WHERE deadline IS NOT NULL)"
+                    ))
+            connection.execute(text("INSERT INTO schema_migrations(version) VALUES (9)"))

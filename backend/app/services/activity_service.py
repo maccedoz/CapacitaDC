@@ -5,27 +5,67 @@ The rotation grade is not typed by anyone: it is the weighted average of the
 submissions already corrected, recomputed here whenever something can change it.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Iterable
 
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app import models, schemas
-from app.services.node_service import lock_user
+from app.services.node_service import deadline_passed, lock_user
 from app.services.assessment_service import effective_grade
 
 
-def is_effectively_open(activity: models.Activity) -> bool:
-    """Returns True if the activity is currently open (manual flag AND deadline not passed)."""
-    if not activity.is_open:
-        return False
-    if activity.deadline is None:
-        return True
-    now = datetime.now(timezone.utc)
-    deadline = activity.deadline
-    if deadline.tzinfo is None:
-        deadline = deadline.replace(tzinfo=timezone.utc)
-    return deadline > now
+def is_effectively_open(activity: models.Activity, deadline: datetime | None) -> bool:
+    """Aberta = sinal manual ligado E prazo não vencido.
+
+    `deadline` é o prazo efetivo (`activity_deadlines`): numa atividade da trilha
+    ele vem das etapas, não da coluna da atividade.
+    """
+    return bool(activity.is_open) and not deadline_passed(deadline)
+
+
+def _linked_activity_id(node_type, activity_id, reference_id):
+    """Mesmo vínculo usado na leitura da etapa: etapas antigas guardavam a atividade em reference_id."""
+    if node_type == "activity" or activity_id:
+        return activity_id or reference_id
+    return None
+
+
+def activity_deadlines(db: Session, activities) -> dict[str, tuple[datetime | None, bool]]:
+    """Prazo efetivo de cada atividade e se ele vem da trilha, com uma única consulta.
+
+    O prazo é definido pela etapa: uma atividade ligada a etapas fecha no prazo
+    mais tardio entre elas (uma etapa sem prazo a deixa sem prazo). Fora da trilha,
+    vale o prazo da própria atividade.
+    """
+    activities = list(activities)
+    ids = [activity.id for activity in activities]
+    linked: dict[str, list] = {}
+    if ids:
+        rows = db.query(
+            models.TrainingNode.type, models.TrainingNode.activity_id,
+            models.TrainingNode.reference_id, models.TrainingNode.deadline,
+        ).filter(or_(
+            models.TrainingNode.activity_id.in_(ids),
+            and_(models.TrainingNode.type == "activity", models.TrainingNode.reference_id.in_(ids)),
+        )).all()
+        for node_type, activity_id, reference_id, deadline in rows:
+            key = _linked_activity_id(node_type, activity_id, reference_id)
+            if key is not None:
+                linked.setdefault(key, []).append(deadline)
+    result = {}
+    for activity in activities:
+        deadlines = linked.get(activity.id)
+        if deadlines:
+            result[activity.id] = (None if any(item is None for item in deadlines) else max(deadlines), True)
+        else:
+            result[activity.id] = (activity.deadline, False)
+    return result
+
+
+def activity_deadline(db: Session, activity: models.Activity) -> tuple[datetime | None, bool]:
+    return activity_deadlines(db, [activity])[activity.id]
 
 
 # ---------------------------------------------------------------------------

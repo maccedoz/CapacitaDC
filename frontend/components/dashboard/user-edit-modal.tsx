@@ -30,7 +30,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Pencil, Trash2, X, Save, Eye, EyeOff } from "lucide-react"
-import { axisLabel, normalizeAxis, type MemberAxis } from "@/lib/roles"
+import { axisLabel, isMemberEmail, MEMBER_EMAIL_ERROR, normalizeAxis, type MemberAxis } from "@/lib/roles"
 
 interface UserEditModalProps {
   user: {
@@ -92,6 +92,13 @@ export function UserEditModal({
       newErrors.email = "Email é obrigatório"
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       newErrors.email = "Email inválido"
+    } else if (
+      // Membros antigos de outro domínio continuam editáveis até alguém mexer no e-mail.
+      (isManager ? user.type : type) === "membro"
+      && (email.trim().toLowerCase() !== user.email.trim().toLowerCase() || user.type !== "membro")
+      && !isMemberEmail(email)
+    ) {
+      newErrors.email = MEMBER_EMAIL_ERROR
     }
 
     if (password && password.length < 6) {

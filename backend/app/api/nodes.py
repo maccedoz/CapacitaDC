@@ -14,7 +14,7 @@ from app.services import node_service, access
 from app.services.assessment_service import validate_settings
 from app.services.activity_service import recompute_users_grades
 from app.services.game_service import revision_for_node
-from app.services.activity_service import activity_weight, is_effectively_open, submission_to_out
+from app.services.activity_service import activity_deadline, activity_weight, is_effectively_open, submission_to_out
 
 router = APIRouter()
 
@@ -49,9 +49,15 @@ def get_node_content(
         access.ensure_activity_access(current_user, activity)
         material_id = activity.material_id
         submission = next((s for s in activity.submissions if s.user_id == current_user.id), None)
-        activity_out = schemas.ActivityOut.model_validate(activity)
+        # Pela etapa, vale o prazo dela: é ele que a entrega feita por aqui respeita.
+        deadline, from_trail = (node.deadline, True) if node.type == "activity" else activity_deadline(db, activity)
+        # Validado de novo para o prazo sair em UTC explícito, como nas demais respostas.
+        activity_out = schemas.ActivityOut.model_validate({
+            **schemas.ActivityOut.model_validate(activity).model_dump(),
+            "deadline": deadline, "deadline_from_trail": from_trail,
+        })
         activity_out.weight = activity_weight(activity)
-        activity_out.effective_open = is_effectively_open(activity)
+        activity_out.effective_open = is_effectively_open(activity, deadline)
         activity_out.submission_count = len(activity.submissions)
         activity_out.my_submission = submission_to_out(submission, user=current_user, activity=activity) if submission else None
     else:

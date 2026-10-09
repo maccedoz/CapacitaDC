@@ -54,8 +54,9 @@ async function request<T>(
 ): Promise<T> {
   const token = getToken()
 
+  // FormData leva o próprio Content-Type, com o boundary do multipart.
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string>),
   }
 
@@ -104,6 +105,14 @@ export async function openAuthenticatedFile(url: string): Promise<void> {
   setTimeout(() => URL.revokeObjectURL(objectUrl), 30000)
 }
 
+/** Baixa um arquivo da API com o token da sessão (ex.: foto de perfil para um <img>). */
+export async function fetchAuthenticatedBlob(url: string): Promise<Blob> {
+  const token = getToken()
+  const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+  if (!response.ok) throw await responseError(response)
+  return response.blob()
+}
+
 export const apiClient = {
   get: <T>(path: string) => request<T>(path, { method: "GET" }),
 
@@ -127,4 +136,11 @@ export const apiClient = {
 
   delete: <T = { detail: string }>(path: string) =>
     request<T>(path, { method: "DELETE" }),
+
+  /** Envia um arquivo como multipart (campo "file"). */
+  upload: <T>(path: string, file: Blob, filename: string, method: "POST" | "PUT" = "POST") => {
+    const body = new FormData()
+    body.append("file", file, filename)
+    return request<T>(path, { method, body })
+  },
 }
