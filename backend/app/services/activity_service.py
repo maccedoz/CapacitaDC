@@ -5,27 +5,67 @@ The rotation grade is not typed by anyone: it is the weighted average of the
 submissions already corrected, recomputed here whenever something can change it.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Iterable
 
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app import models, schemas
-from app.services.node_service import lock_user
+from app.services.node_service import deadline_passed, lock_user
 from app.services.assessment_service import effective_grade
 
 
-def is_effectively_open(activity: models.Activity) -> bool:
-    """Returns True if the activity is currently open (manual flag AND deadline not passed)."""
-    if not activity.is_open:
-        return False
-    if activity.deadline is None:
-        return True
-    now = datetime.now(timezone.utc)
-    deadline = activity.deadline
-    if deadline.tzinfo is None:
-        deadline = deadline.replace(tzinfo=timezone.utc)
-    return deadline > now
+def is_effectively_open(activity: models.Activity, deadline: datetime | None) -> bool:
+    """Aberta = sinal manual ligado E prazo não vencido.
+
+    `deadline` é o prazo efetivo (`activity_deadlines`): numa atividade da trilha
+    ele vem das etapas, não da coluna da atividade.
+    """
+    return bool(activity.is_open) and not deadline_passed(deadline)
+
+
+def _linked_activity_id(node_type, activity_id, reference_id):
+    """Mesmo vínculo usado na leitura da etapa: etapas antigas guardavam a atividade em reference_id."""
+    if node_type == "activity" or activity_id:
+        return activity_id or reference_id
+    return None
+
+
+def activity_deadlines(db: Session, activities) -> dict[str, tuple[datetime | None, bool]]:
+    """Prazo efetivo de cada atividade e se ele vem da trilha, com uma única consulta.
+
+    O prazo é definido pela etapa: uma atividade ligada a etapas fecha no prazo
+    mais tardio entre elas (uma etapa sem prazo a deixa sem prazo). Fora da trilha,
+    vale o prazo da própria atividade.
+    """
+    activities = list(activities)
+    ids = [activity.id for activity in activities]
+    linked: dict[str, list] = {}
+    if ids:
+        rows = db.query(
+            models.TrainingNode.type, models.TrainingNode.activity_id,
+            models.TrainingNode.reference_id, models.TrainingNode.deadline,
+        ).filter(or_(
+            models.TrainingNode.activity_id.in_(ids),
+            and_(models.TrainingNode.type == "activity", models.TrainingNode.reference_id.in_(ids)),
+        )).all()
+        for node_type, activity_id, reference_id, deadline in rows:
+            key = _linked_activity_id(node_type, activity_id, reference_id)
+            if key is not None:
+                linked.setdefault(key, []).append(deadline)
+    result = {}
+    for activity in activities:
+        deadlines = linked.get(activity.id)
+        if deadlines:
+            result[activity.id] = (None if any(item is None for item in deadlines) else max(deadlines), True)
+        else:
+            result[activity.id] = (activity.deadline, False)
+    return result
+
+
+def activity_deadline(db: Session, activity: models.Activity) -> tuple[datetime | None, bool]:
+    return activity_deadlines(db, [activity])[activity.id]
 
 
 # ---------------------------------------------------------------------------
@@ -63,23 +103,49 @@ def weighted_average(pairs: Iterable[tuple[float, float]]) -> float | None:
     return round(total / total_weight, 2)
 
 
-def graded_pairs(db: Session, user_id: str, eixos: set[str] | None = None) -> list[tuple[float, float]]:
+def _graded_rows(db: Session, owner_filter, eixos: set[str] | None):
+    """Entregas e jogos que entram na média, com a mesma regra para uma ou várias pessoas.
+
+    `owner_filter` recebe a coluna de usuário de cada tabela e devolve o filtro.
+    """
     submissions = db.query(models.ActivitySubmission, models.Activity).join(
         models.Activity, models.Activity.id == models.ActivitySubmission.activity_id,
-    ).filter(models.ActivitySubmission.user_id == user_id, models.Activity.is_required.is_(True))
+    ).filter(owner_filter(models.ActivitySubmission.user_id), models.Activity.is_required.is_(True))
     # A graded game counts even below the minimum grade that concludes its step:
     # the best grade so far is the person's result until a retry improves it.
     games = db.query(models.UserNodeProgress, models.TrainingNode).join(
         models.TrainingNode, models.TrainingNode.id == models.UserNodeProgress.node_id,
-    ).filter(models.UserNodeProgress.user_id == user_id,
+    ).filter(owner_filter(models.UserNodeProgress.user_id),
              models.UserNodeProgress.grade.isnot(None), models.TrainingNode.type == "game",
              models.TrainingNode.is_required.is_(True))
     if eixos is not None:
         submissions = submissions.filter(models.Activity.eixo.in_(eixos))
         games = games.filter(models.TrainingNode.eixo.in_(eixos))
-    pairs = [(effective_grade(sub), activity_weight(activity)) for sub, activity in submissions.all()
+    return submissions.all(), games.all()
+
+
+def graded_pairs(db: Session, user_id: str, eixos: set[str] | None = None) -> list[tuple[float, float]]:
+    submissions, games = _graded_rows(db, lambda column: column == user_id, eixos)
+    pairs = [(effective_grade(sub), activity_weight(activity)) for sub, activity in submissions
              if effective_grade(sub) is not None]
-    return pairs + [(progress.grade, node.weight) for progress, node in games.all()]
+    return pairs + [(progress.grade, node.weight) for progress, node in games]
+
+
+def graded_pairs_by_user(
+    db: Session, user_ids: Iterable[str], eixos: set[str] | None = None,
+) -> dict[str, list[tuple[float, float]]]:
+    """`graded_pairs` de várias pessoas com duas consultas, na mesma ordem: entregas, depois jogos."""
+    pairs = {user_id: [] for user_id in user_ids}
+    if not pairs:
+        return pairs
+    submissions, games = _graded_rows(db, lambda column: column.in_(pairs), eixos)
+    for sub, activity in submissions:
+        grade = effective_grade(sub)
+        if grade is not None:
+            pairs[sub.user_id].append((grade, activity_weight(activity)))
+    for progress, node in games:
+        pairs[progress.user_id].append((progress.grade, node.weight))
+    return pairs
 
 
 def recompute_user_grade(db: Session, user_id: str) -> float | None:
@@ -123,29 +189,51 @@ def axis_metrics(db: Session, user_id: str, eixos: set[str]) -> dict:
     from trails they do not administer. Nothing is written — the stored global
     values stay as they are for everyone else.
     """
+    return axis_metrics_by_user(db, [user_id], eixos)[user_id]
+
+
+def axis_metrics_by_user(db: Session, user_ids: Iterable[str], eixos: set[str]) -> dict[str, dict]:
+    """`axis_metrics` de várias pessoas nos mesmos eixos, sem consultas por pessoa."""
+    user_ids = list(dict.fromkeys(user_ids))
+    if not user_ids:
+        return {}
     progress = db.query(models.UserNodeProgress, models.TrainingNode).join(
         models.TrainingNode, models.TrainingNode.id == models.UserNodeProgress.node_id,
     ).filter(
-        models.UserNodeProgress.user_id == user_id,
+        models.UserNodeProgress.user_id.in_(user_ids),
         models.UserNodeProgress.completed.is_(True),
         models.TrainingNode.eixo.in_(eixos),
     ).all()
-    submissions = db.query(models.ActivitySubmission, models.Activity).join(
+    submissions = db.query(models.ActivitySubmission.user_id, models.ActivitySubmission.grade).join(
         models.Activity, models.Activity.id == models.ActivitySubmission.activity_id,
     ).filter(
-        models.ActivitySubmission.user_id == user_id,
+        models.ActivitySubmission.user_id.in_(user_ids),
         models.Activity.eixo.in_(eixos),
     ).all()
-    # Mesma regra da trilha: material concluído vale 50; jogo, a melhor pontuação.
-    points = sum(50 if node.type == "material" else row.score for row, node in progress)
-    return {
-        "pontos_acumulados": points,
-        "nota_rotacao": weighted_average(graded_pairs(db, user_id, eixos)),
-        "nodes_completed": len(progress),
-        "nodes_total": db.query(models.TrainingNode).filter(models.TrainingNode.eixo.in_(eixos)).count(),
-        "activities_submitted": len(submissions),
-        "activities_graded": sum(sub.grade is not None for sub, _ in submissions),
+    pairs = graded_pairs_by_user(db, user_ids, eixos)
+    nodes_total = db.query(models.TrainingNode).filter(models.TrainingNode.eixo.in_(eixos)).count()
+
+    metrics = {
+        user_id: {
+            "pontos_acumulados": 0,
+            "nota_rotacao": weighted_average(pairs[user_id]),
+            "nodes_completed": 0,
+            "nodes_total": nodes_total,
+            "activities_submitted": 0,
+            "activities_graded": 0,
+        }
+        for user_id in user_ids
     }
+    for row, node in progress:
+        item = metrics[row.user_id]
+        # Mesma regra da trilha: material concluído vale 50; jogo, a melhor pontuação.
+        item["pontos_acumulados"] += 50 if node.type == "material" else row.score
+        item["nodes_completed"] += 1
+    for user_id, grade in submissions:
+        item = metrics[user_id]
+        item["activities_submitted"] += 1
+        item["activities_graded"] += grade is not None
+    return metrics
 
 
 # ---------------------------------------------------------------------------
@@ -165,4 +253,6 @@ def submission_to_out(submission, *, user=None, activity=None) -> schemas.Activi
         result.activity_title = subject.title
         result.activity_weight = activity_weight(subject)
         result.activity_eixo = subject.eixo
+    if submission.graded_by is not None:
+        result.graded_by_name = submission.graded_by.name
     return result

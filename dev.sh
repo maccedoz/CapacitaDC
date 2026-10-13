@@ -73,7 +73,7 @@ echo "📥 Instalando dependências do backend..."
 
 # 4. Criar tabelas e popular dados iniciais (seed)
 echo "🌱 Inicializando e populando o banco de dados..."
-.venv/bin/python -m app.seed
+SEED_ADMIN_PASSWORD="${SEED_ADMIN_PASSWORD:-admin123}" .venv/bin/python -m app.seed
 
 # 5. Iniciar o servidor Backend (uvicorn)
 echo "⚡ Iniciando servidor Backend FastAPI na porta 8000..."

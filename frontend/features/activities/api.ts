@@ -74,4 +74,10 @@ export const activitiesApi = {
 
   deleteSubmission: (activityId: string, submissionId: string) =>
     apiClient.delete(`/api/activities/${activityId}/submissions/${submissionId}`),
+
+  // Mesma nota (e feedback opcional) para várias entregas; tudo ou nada.
+  gradeBatch: (submissionIds: string[], grade: number, feedback: string) =>
+    apiClient.post<ActivitySubmissionOut[]>("/api/submissions/grade-batch", {
+      submission_ids: submissionIds, grade, feedback,
+    }),
 }

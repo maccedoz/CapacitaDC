@@ -3,6 +3,7 @@ import type { AttemptPayload, BoardCard, GameAttempt } from "./types"
 /** In-progress answers of any format, kept in the browser so a reload loses nothing. */
 export interface AttemptDraft {
   answers: Record<string, string[]>
+  openAnswers: Record<string, string>
   selection: Record<string, string>
   order: string[]
 }
@@ -10,7 +11,7 @@ export interface AttemptDraft {
 const storageKey = (attemptId: string) => `game-answers:${attemptId}`
 
 export function emptyDraft(): AttemptDraft {
-  return { answers: {}, selection: {}, order: [] }
+  return { answers: {}, openAnswers: {}, selection: {}, order: [] }
 }
 
 function stringRecord(value: unknown, arrays: boolean): Record<string, unknown> {
@@ -36,6 +37,7 @@ export function restoreDraft(attempt: GameAttempt): AttemptDraft {
   const arrangementIsValid = order.length === fallback.order.length && new Set(order).size === order.length && order.every(id => fallback.order.includes(id))
   return {
     answers: stringRecord(saved.answers, true) as Record<string, string[]>,
+    openAnswers: stringRecord(saved.openAnswers, false) as Record<string, string>,
     selection: stringRecord(saved.selection, false) as Record<string, string>,
     order: arrangementIsValid ? order : fallback.order,
   }
@@ -53,6 +55,8 @@ export function attemptPayload(attempt: GameAttempt, draft: AttemptDraft): Attem
   switch (attempt.format) {
     case "quiz":
       return { answers: (attempt.questions || []).map(question => ({ question_id: question.id, option_ids: draft.answers[question.id] || [] })) }
+    case "open_response":
+      return { open_answers: (attempt.open_questions || []).map(question => ({ question_id: question.id, text: draft.openAnswers[question.id] || "" })) }
     case "matching":
       return { matches: (attempt.board?.left || []).map(card => ({ left_id: card.id, right_id: draft.selection[card.id] || "" })) }
     case "ordering":
@@ -68,6 +72,11 @@ export function isComplete(attempt: GameAttempt, draft: AttemptDraft): boolean {
   switch (attempt.format) {
     case "quiz":
       return !!attempt.questions?.length && attempt.questions.every(question => draft.answers[question.id]?.length)
+    case "open_response":
+      return !!attempt.open_questions?.length && attempt.open_questions.every(question => {
+        const answer = draft.openAnswers[question.id] || ""
+        return answer.trim().length > 0 && answer.length <= 5000
+      })
     case "matching":
       return !!attempt.board?.left?.length && attempt.board.left.every(card => draft.selection[card.id])
     case "ordering":

@@ -21,7 +21,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { UserPlus, Eye, EyeOff } from "lucide-react"
-import { memberAxisLabels, type MemberAxis } from "@/lib/roles"
+import { isMemberEmail, memberAxisLabels, MEMBER_EMAIL_ERROR, type MemberAxis } from "@/lib/roles"
 
 type Cargo = "admin" | "organizador" | "gerente" | "membro" | "trainee"
 type Eixo = MemberAxis
@@ -91,6 +91,8 @@ export function MemberForm({ onSubmit, userType = "admin", managerAxis = null }:
       newErrors.email = "Email é obrigatório"
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       newErrors.email = "Email inválido"
+    } else if (cargo === "membro" && !isMemberEmail(email)) {
+      newErrors.email = MEMBER_EMAIL_ERROR
     }
 
     if (!password) {
@@ -191,7 +193,7 @@ export function MemberForm({ onSubmit, userType = "admin", managerAxis = null }:
             <Input
               id="email"
               type="email"
-              placeholder="email@exemplo.com"
+              placeholder={cargo === "membro" ? "nome@infojr.com.br" : "email@exemplo.com"}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="bg-secondary border-border text-foreground placeholder:text-muted-foreground"

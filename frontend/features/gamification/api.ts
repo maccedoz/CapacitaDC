@@ -5,4 +5,5 @@ import type { GamificationSummary } from "./types"
 
 export const gamificationApi = {
   summary: () => apiClient.get<GamificationSummary>("/api/gamification"),
+  acknowledge: (achievementIds: string[]) => apiClient.post<GamificationSummary>("/api/gamification/seen", { achievement_ids: achievementIds }),
 }

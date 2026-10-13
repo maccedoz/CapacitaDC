@@ -10,8 +10,8 @@ from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app import game_schemas as schemas, models
-from app.services import access
-from app.services.node_service import lock_progress_user
+from app.services import access, audit
+from app.services.node_service import ensure_before_node_deadline, lock_progress_user
 
 
 def game_for_author(db, game_id, user, *, lock=False):
@@ -66,6 +66,9 @@ def publish_game(db, game, user):
     )
     game.revisions.append(revision)
     game.updated_at = datetime.now(timezone.utc)
+    # Só uma versão nova entra no histórico: publicar sem mudanças não cria nada.
+    audit.record(db, user, "game.publish", entity_type="game", entity_id=game.id, entity_name=game.title,
+                 eixo=game.eixo, details={"versão": revision.version})
     db.commit()
     db.refresh(game)
     return game_to_out(game)
@@ -148,6 +151,14 @@ def _board(attempt):
     return None
 
 
+def utc_timestamp(value):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def attempt_to_out(attempt):
     revision = attempt.revision
     quiz = revision.format == "quiz"
@@ -162,12 +173,18 @@ def attempt_to_out(attempt):
         # Current state, not the one at completion: a later retry may have passed.
         result["min_grade"] = min_grade_for(attempt.node)
         result["step_completed"] = bool(progress and progress.completed)
+    open_response = revision.format == "open_response"
     return {
         "id": attempt.id, "node_id": attempt.node_id,
         "game_revision_id": revision.id, "status": attempt.status,
         "format": revision.format, "title": revision.title, "instructions": revision.instructions,
         "max_score": revision.max_points,
         "questions": [_public_item(question) for question in revision.config["questions"]] if quiz else [],
+        "open_questions": [{"id": question["id"], "text": question["text"]}
+                           for question in revision.config["questions"]] if open_response else [],
+        "submitted_at": utc_timestamp(attempt.submitted_at),
+        "graded_at": utc_timestamp(attempt.graded_at),
+        "graded_by_name": attempt.graded_by.name if attempt.graded_by else None,
         "current_step": _public_item(step) if step else None,
         "board": _board(attempt) if attempt.status != "completed" else None,
         "answers": attempt.answers,
@@ -176,7 +193,7 @@ def attempt_to_out(attempt):
     }
 
 
-def begin_attempt(db, node_id, user):
+def begin_attempt(db, node_id, user, *, new_attempt=False):
     user = lock_progress_user(db, user)
     node = _node_for_attempt(db, node_id, user)
     if not node.allow_retry:
@@ -185,6 +202,16 @@ def begin_attempt(db, node_id, user):
             return attempt_to_out(completed)
     key = f"{user.id}:{node.id}"
     attempt = db.query(models.GameAttempt).filter(models.GameAttempt.active_key == key).first()
+    # A submitted response stays readable after the deadline and cannot be retried
+    # until graded. Reopening a graded open question shows its result by default.
+    if attempt and attempt.status == "pending_review":
+        return attempt_to_out(attempt)
+    if node.game_revision.format == "open_response" and not new_attempt and attempt is None:
+        latest = db.query(models.GameAttempt).filter_by(user_id=user.id, node_id=node.id, status="completed").order_by(models.GameAttempt.completed_at.desc()).first()
+        if latest:
+            return attempt_to_out(latest)
+    # Depois do prazo da etapa não se abre nem se retoma tentativa; a melhor nota fica.
+    ensure_before_node_deadline(node)
     if attempt is None:
         attempt = models.GameAttempt(
             user_id=user.id, node_id=node.id, game_revision_id=node.game_revision_id,
@@ -213,6 +240,7 @@ def answer_scenario(db, attempt_id, user, answer):
         return attempt_to_out(attempt)
     if attempt.status != "in_progress":
         raise HTTPException(409, "A tentativa já foi concluída")
+    ensure_before_node_deadline(attempt.node)
     step = _scenario_step(attempt)
     if step is None or step["id"] != answer.step_id:
         raise HTTPException(400, "Responda o passo atual do cenário")
@@ -339,19 +367,28 @@ def _evaluate_categorization(config, placements):
 
 
 # Scenario decisions are recorded step by step, so its completion carries no list.
-FORMAT_PAYLOAD = {"quiz": "answers", "scenario": None, "matching": "matches",
+FORMAT_PAYLOAD = {"quiz": "answers", "open_response": "open_answers", "scenario": None, "matching": "matches",
                   "ordering": "order", "categorization": "placements"}
 
 
 def complete_attempt(db: Session, attempt_id, user, payload):
     attempt, user = _attempt_for_user(db, attempt_id, user, lock=True)
-    if attempt.status == "completed":
+    if attempt.status in {"completed", "pending_review"}:
         return attempt_to_out(attempt)
+    ensure_before_node_deadline(attempt.node)
     fmt = attempt.revision.format
     expected = FORMAT_PAYLOAD[fmt]
     if payload.submitted_fields() - ({expected} if expected else set()):
         raise HTTPException(400, "Envie apenas as respostas deste formato de jogo")
     config, note = attempt.revision.config, ""
+    if fmt == "open_response":
+        validate_question_ids(config, payload.open_answers)
+        attempt.answers = [answer.model_dump() for answer in payload.open_answers]
+        attempt.status = "pending_review"
+        attempt.submitted_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(attempt)
+        return attempt_to_out(attempt)
     if fmt == "quiz":
         score, maximum, feedback = _evaluate_quiz(config, payload.answers)
     elif fmt == "scenario":
@@ -365,6 +402,19 @@ def complete_attempt(db: Session, attempt_id, user, payload):
         score, maximum, feedback = _evaluate_categorization(config, payload.placements)
     if expected:
         attempt.answers = [item if isinstance(item, str) else item.model_dump() for item in getattr(payload, expected)]
+    apply_attempt_result(db, attempt, user, score, maximum, feedback, note)
+    db.commit()
+    db.refresh(attempt)
+    return attempt_to_out(attempt)
+
+
+def validate_question_ids(config, answers):
+    ids = [answer.question_id for answer in answers]
+    if len(ids) != len(set(ids)) or set(ids) != {question["id"] for question in config["questions"]}:
+        raise HTTPException(400, "Responda todas as perguntas, uma vez cada, usando os identificadores desta versão")
+
+
+def apply_attempt_result(db, attempt, user, score, maximum, feedback, note="", *, regrade=False):
     # Every format shares the same 100-point cap, so formats stay comparable
     # regardless of how many questions, decisions or cards the author wrote.
     normalized = int(score * attempt.revision.max_points / maximum + 0.5) if maximum else 0
@@ -374,16 +424,28 @@ def complete_attempt(db: Session, attempt_id, user, payload):
     if progress is None:
         progress = models.UserNodeProgress(user_id=user.id, node_id=attempt.node_id, completed=False, score=0)
         db.add(progress)
-    delta = max(0, normalized - progress.score)
-    progress.score = max(progress.score, normalized)
-    user.pontos_acumulados += delta
-    attempt.status = "completed"
-    attempt.active_key = None
-    attempt.completed_at = datetime.now(timezone.utc)
     from app.services.assessment_service import min_grade_for, normalized_grade, passes
     from app.services.activity_service import recompute_user_grade
     grade = normalized_grade(score, maximum)
-    progress.grade = max(progress.grade if progress.grade is not None else 0, grade)
+    if regrade:
+        other_results = [row.result for row in db.query(models.GameAttempt).filter(
+            models.GameAttempt.user_id == user.id, models.GameAttempt.node_id == attempt.node_id,
+            models.GameAttempt.status == "completed", models.GameAttempt.id != attempt.id,
+        ).all() if row.result]
+        best_score = max([normalized, *[result["attempt_score"] for result in other_results]])
+        best_grade = max([grade, *[result["grade"] for result in other_results]])
+    else:
+        best_score = max(progress.score, normalized)
+        best_grade = max(progress.grade if progress.grade is not None else 0, grade)
+    delta = best_score - progress.score
+    progress.score, progress.grade = best_score, best_grade
+    user.pontos_acumulados += delta
+    attempt.status = "completed"
+    attempt.active_key = None
+    # Preserve the time/order of a graded attempt when its correction is edited.
+    attempt.completed_at = attempt.completed_at or datetime.now(timezone.utc)
+    if regrade and not passes(attempt.node, progress.grade):
+        progress.completed, progress.completed_at = False, None
     # Below the minimum, a repeatable game keeps the step open until a retry passes.
     if not progress.completed and passes(attempt.node, progress.grade):
         progress.completed = True
@@ -396,6 +458,3 @@ def complete_attempt(db: Session, attempt_id, user, payload):
         "user_total_points": user.pontos_acumulados, "note": note, "feedback": feedback,
     }
     recompute_user_grade(db, user.id)
-    db.commit()
-    db.refresh(attempt)
-    return attempt_to_out(attempt)

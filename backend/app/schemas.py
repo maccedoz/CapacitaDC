@@ -1,6 +1,6 @@
-from typing import Annotated, Optional, List, Literal
+from typing import Annotated, Any, Optional, List, Literal
 from datetime import datetime, timezone
-from pydantic import AfterValidator, BaseModel, EmailStr, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, EmailStr, ConfigDict, Field, field_validator, model_validator
 
 Role = Literal["admin", "organizador", "gerente", "membro", "trainee"]
 
@@ -32,22 +32,62 @@ class UserBase(BaseModel):
     eixo: Optional[str] = None
     photo: Optional[str] = ""
 
-class UserCreate(UserBase):
-    password: Optional[str] = "123456"  # Default password for members created by admin
+MIN_PASSWORD_LENGTH = 6
 
-class UserRegister(BaseModel):
-    name: str
-    cargo: str
-    email: EmailStr
-    password: str
+
+class UserCreate(UserBase):
+    password: str = Field(min_length=MIN_PASSWORD_LENGTH)
 
 class UserOut(UserBase):
     id: str
     nota_rotacao: Optional[float] = None
     pontos_acumulados: int = 0
     rotacao: Optional[int] = None
+    password_prompt_pending: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+class ProfileUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def name_not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("Informe o nome.")
+        return value.strip()
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=MIN_PASSWORD_LENGTH)
+
+
+class SuggestionCreate(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("text")
+    @classmethod
+    def text_not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("Escreva a sugestão.")
+        return value.strip()
+
+
+class SuggestionOut(BaseModel):
+    id: str
+    author_id: Optional[str] = None
+    author_name: str
+    text: str
+    created_at: UtcInstantOut
+    read_at: Optional[UtcInstantOut] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SuggestionUpdate(BaseModel):
+    read: bool
+
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
@@ -55,7 +95,14 @@ class UserUpdate(BaseModel):
     cargo: Optional[str] = None
     type: Optional[Role] = None
     eixo: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[str] = None  # vazio mantém a senha atual
+
+    @field_validator("password")
+    @classmethod
+    def password_long_enough(cls, value):
+        if value is not None and value.strip() and len(value) < MIN_PASSWORD_LENGTH:
+            raise ValueError(f"A senha precisa ter pelo menos {MIN_PASSWORD_LENGTH} caracteres.")
+        return value
 
 class TraineeUpdate(BaseModel):
     # A nota de rotação não entra aqui: ela é calculada a partir das atividades
@@ -156,7 +203,7 @@ class TrainingNodeOut(BaseModel):
     type: str  # "activity", "material", "game"
     reference_id: Optional[str] = None
     game_revision_id: Optional[str] = None
-    game_format: Optional[Literal["quiz", "scenario", "matching", "ordering", "categorization"]] = None
+    game_format: Optional[Literal["quiz", "open_response", "scenario", "matching", "ordering", "categorization"]] = None
     allow_retry: bool = True
     is_required: bool = True
     weight: float = 1.0
@@ -178,6 +225,7 @@ class TrainingNodeGraphOut(TrainingNodeOut):
     # Pré-requisito que vale de fato: o escolhido à mão ou a etapa anterior do eixo.
     effective_prerequisite_id: Optional[str] = None
     completed: bool = False
+    pending_review: bool = False
     unlocked: bool = True
     user_score: int = 0
     grade: Optional[float] = None
@@ -341,6 +389,8 @@ class ActivitySubmissionOut(BaseModel):
     activity_title: Optional[str] = None
     activity_weight: Optional[float] = None
     activity_eixo: Optional[str] = None
+    graded_by_name: Optional[str] = None  # quem lançou a nota atual
+    graded_at: Optional[UtcInstantOut] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -350,7 +400,9 @@ class ActivityOut(BaseModel):
     description: Optional[str] = ""
     eixo: str
     accepts_file: bool
+    # Prazo efetivo: numa atividade da trilha, vem das etapas (o mais tardio).
     deadline: Optional[UtcInstantOut] = None
+    deadline_from_trail: bool = False
     is_open: bool
     weight: float = 1.0
     allow_retry: bool = True
@@ -397,6 +449,11 @@ class SubmissionGrade(BaseModel):
     feedback: Optional[str] = ""
 
 
+class SubmissionBatchGrade(SubmissionGrade):
+    """A mesma nota (e o mesmo feedback, se houver) para várias entregas de uma vez."""
+    submission_ids: List[str] = Field(min_length=1, max_length=200)
+
+
 # --- Profile & Grades Schemas ---
 
 class NodeProgressOut(BaseModel):
@@ -440,3 +497,33 @@ class GradeRow(BaseModel):
     nodes_total: int = 0
     activities_submitted: int = 0
     activities_graded: int = 0
+
+
+# --- Histórico de alterações ---
+class AuditLogOut(BaseModel):
+    id: str
+    created_at: UtcInstantOut
+    actor_id: Optional[str] = None
+    actor_name: str
+    action: str
+    entity_type: str
+    entity_id: Optional[str] = None
+    entity_name: Optional[str] = None
+    eixo: Optional[str] = None
+    target_user_id: Optional[str] = None
+    target_user_name: Optional[str] = None
+    details: Optional[dict[str, Any]] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AuditActorOut(BaseModel):
+    id: str
+    name: str
+
+
+class AuditPage(BaseModel):
+    items: List[AuditLogOut]
+    total: int
+    # Quem aparece no escopo de quem consulta, para o filtro "quem fez".
+    actors: List[AuditActorOut]

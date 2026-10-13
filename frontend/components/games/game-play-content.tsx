@@ -1,7 +1,23 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import type { GameResult, PublicQuestion, PublicStep } from "@/features/games/types"
+import { Textarea } from "@/components/ui/textarea"
+import type { GameResult, OpenQuestion, PublicQuestion, PublicStep } from "@/features/games/types"
+
+export function OpenResponseChoices({ questions, answers, onChange, disabled, readOnly = false }: {
+  questions: Pick<OpenQuestion, "id" | "text">[]; answers: Record<string, string>
+  onChange?: (questionId: string, text: string) => void; disabled?: boolean; readOnly?: boolean
+}) {
+  return <div className="space-y-5">{questions.map((question, index) => <section key={question.id} className="space-y-3 rounded-lg border p-4">
+    <h3 className="text-sm font-semibold">Pergunta {index + 1}</h3>
+    <p className="whitespace-pre-wrap font-medium">{question.text}</p>
+    {readOnly ? <p className="whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-sm">{answers[question.id]}</p> : <>
+      <label className="text-sm" htmlFor={`open-answer-${question.id}`}>Resposta da pergunta {index + 1}</label>
+      <Textarea id={`open-answer-${question.id}`} rows={5} maxLength={5000} disabled={disabled} value={answers[question.id] || ""} onChange={event => onChange?.(question.id, event.target.value)} />
+      <p className="text-xs text-muted-foreground">{(answers[question.id] || "").length} / 5.000 caracteres</p>
+    </>}
+  </section>)}</div>
+}
 
 export function QuizChoices({ questions, answers, onChange, disabled }: { questions: PublicQuestion[]; answers: Record<string, string[]>; onChange: (questionId: string, optionIds: string[]) => void; disabled?: boolean }) {
   return <div className="space-y-6">{questions.map((question, index) => <fieldset key={question.id} disabled={disabled} className="space-y-3 rounded-lg border p-4">
@@ -71,6 +87,8 @@ export function GameResultView({ result, preview = false }: { result: GameResult
     <div className="space-y-3">{result.feedback.map((item, index) => <section key={item.question_id || item.step_id || item.item_id || index} className="space-y-2 rounded-lg border p-4">
       <div className="flex items-start justify-between gap-4"><p className="whitespace-pre-wrap text-sm font-medium">{item.text}</p></div>
       <AnswerStatus item={item} />
+      {item.answer != null && <><p className="text-xs font-semibold text-muted-foreground">Sua resposta</p><p className="whitespace-pre-wrap break-words text-sm">{item.answer}</p></>}
+      {item.grade != null && <p className="text-sm font-medium">Nota da pergunta: {grade(item.grade)} / 10</p>}
       {item.feedback && <p className="whitespace-pre-wrap text-sm">{item.feedback}</p>}
       {item.explanation && <p className="whitespace-pre-wrap text-sm text-muted-foreground">{item.explanation}</p>}
     </section>)}</div>

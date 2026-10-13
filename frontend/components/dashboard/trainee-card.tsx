@@ -1,7 +1,7 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { UserAvatar } from "@/components/user-avatar"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -19,23 +19,11 @@ interface TraineeCardProps {
 
 export function TraineeCard({ id, name, photo, notaRotacao, rotacao, showGrade = false, showProfile = false }: TraineeCardProps) {
   const router = useRouter()
-  const initials = name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase()
-
   return (
     <Card className="border-border/50 bg-card hover:border-primary/50 transition-all duration-200">
       <CardContent className="p-4">
         <div className="flex items-start gap-3">
-          <Avatar className="h-10 w-10 border-2 border-muted shrink-0">
-            <AvatarImage src={photo || "/placeholder.svg"} alt={name} />
-            <AvatarFallback className="bg-muted text-muted-foreground font-medium">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
+          <UserAvatar name={name} photo={photo} className="h-10 w-10 border-2 border-muted shrink-0" fallbackClassName="bg-muted text-muted-foreground font-medium" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-1">
               <h3 className="font-medium text-foreground truncate text-sm">{name}</h3>

@@ -1,4 +1,39 @@
-export type GameFormat = "quiz" | "scenario" | "matching" | "ordering" | "categorization"
+export type GameFormat = "quiz" | "open_response" | "scenario" | "matching" | "ordering" | "categorization"
+
+export interface OpenQuestion {
+  id: string
+  text: string
+  weight: number
+  grading_notes: string
+}
+
+export interface OpenResponseConfig { questions: OpenQuestion[] }
+export interface OpenAnswer { question_id: string; text: string }
+export interface QuestionGrade { question_id: string; grade: number; feedback: string }
+
+export interface GameReview {
+  id: string
+  node_id: string
+  node_name: string
+  title: string
+  version: number
+  eixo: string
+  user_name: string
+  user_type: string
+  submitted_at: string
+  graded_at: string | null
+  graded_by_name: string | null
+  grade: number | null
+  questions: (OpenQuestion & { answer: string; grade: number | null; feedback: string })[]
+}
+
+export interface ReviewFilters {
+  status: "pending" | "graded" | "all"
+  eixo?: string
+  user_type?: "trainee" | "membro" | "all"
+  limit?: number
+  offset?: number
+}
 
 export interface QuizOption {
   id: string
@@ -88,6 +123,7 @@ export interface CategorizationConfig {
 
 export type GameContent =
   | { format: "quiz"; config: QuizConfig }
+  | { format: "open_response"; config: OpenResponseConfig }
   | { format: "scenario"; config: ScenarioConfig }
   | { format: "matching"; config: MatchingConfig }
   | { format: "ordering"; config: OrderingConfig }
@@ -163,6 +199,7 @@ export interface AttemptPayload {
   matches?: MatchAnswer[]
   order?: string[]
   placements?: PlacementAnswer[]
+  open_answers?: OpenAnswer[]
 }
 
 export interface ScenarioAnswer {
@@ -189,6 +226,8 @@ export interface GameResult {
     step_id?: string
     item_id?: string
     text: string
+    answer?: string
+    grade?: number
     option_ids: string[]
     is_correct?: boolean
     /** Quiz questions only; older results carry just is_correct. */
@@ -207,15 +246,19 @@ export interface GameAttempt {
   id: string
   node_id: string
   game_revision_id: string
-  status: "in_progress" | "completed"
+  status: "in_progress" | "pending_review" | "completed"
   format: GameFormat
   title: string
   instructions: string
   max_score: number
   questions?: PublicQuestion[]
+  open_questions?: Pick<OpenQuestion, "id" | "text">[]
+  submitted_at?: string | null
+  graded_at?: string | null
+  graded_by_name?: string | null
   current_step: PublicStep | null
   board: GameBoard | null
-  answers: (QuizAnswer | ScenarioAnswer | MatchAnswer | PlacementAnswer | string)[]
+  answers: (QuizAnswer | OpenAnswer | ScenarioAnswer | MatchAnswer | PlacementAnswer | string)[]
   can_finish: boolean
   result: GameResult | null
 }

@@ -24,14 +24,105 @@ class AccessTests(unittest.TestCase):
     def tearDown(self):
         self.api.tearDown()
 
-    def test_public_registration_never_grants_privileged_role(self):
-        for email in ['admin@infoej.com.br', 'organizador@infoej.com.br', 'membro@infoej.com.br']:
-            with self.subTest(email=email), patch.object(auth, 'get_password_hash', return_value='test-only'):
-                status, result = self.request('POST', '/api/auth/register', {
-                    'name': 'Cadastro público', 'email': email, 'cargo': 'Administrador', 'password': 'test-only',
-                }, role=None)
-            self.assertEqual(status, 200)
-            self.assertEqual(result['type'], 'trainee')
+    def test_there_is_no_public_registration(self):
+        status, _ = self.request('POST', '/api/auth/register', {
+            'name': 'Cadastro público', 'email': 'novo@example.com', 'cargo': 'Administrador', 'password': 'test-only',
+        }, role=None)
+        self.assertEqual(status, 404)
+        with self.api.sessions() as db:
+            self.assertIsNone(db.query(models.User).filter(models.User.email == 'novo@example.com').first())
+
+    def test_member_email_must_belong_to_the_company_domain(self):
+        error = 'E-mail de membro precisa terminar em @infojr.com.br.'
+        payload = {'name': 'Novo membro', 'cargo': 'membro', 'type': 'membro', 'eixo': 'vendas', 'password': 'test-only'}
+        for email in ['novo@example.com', 'novo@infojr.com.br.example.com', 'novo@outrainfojr.com']:
+            with self.subTest(email=email):
+                status, result = self.request('POST', '/api/users', {**payload, 'email': email})
+                self.assertEqual((status, result['detail']), (422, error))
+        status, created = self.request('POST', '/api/users', {**payload, 'email': '  Novo@InfoJr.com.br '})
+        self.assertEqual(status, 200, created)
+        # Trainees e demais perfis não têm a exigência.
+        status, trainee = self.request('POST', '/api/users', {**payload, 'type': 'trainee', 'cargo': 'trainee',
+                                                              'eixo': None, 'email': 'trainee2@example.com'})
+        self.assertEqual(status, 200, trainee)
+
+        path = f"/api/users/{created['id']}"
+        status, result = self.request('PUT', path, {'email': 'outro@example.com'})
+        self.assertEqual((status, result['detail']), (422, error))
+        self.assertEqual(self.request('PUT', path, {'email': 'outro@infojr.com.br'})[0], 200)
+        # Virar membro também exige o domínio.
+        promote = {'type': 'membro', 'cargo': 'membro', 'eixo': 'vendas'}
+        status, result = self.request('PUT', f"/api/users/{trainee['id']}", promote)
+        self.assertEqual((status, result['detail']), (422, error))
+        with self.api.sessions() as db:
+            self.assertEqual(db.get(models.User, trainee['id']).type, 'trainee')
+        status, result = self.request('PUT', f"/api/users/{trainee['id']}", {**promote, 'email': 'trainee2@infojr.com.br'})
+        self.assertEqual((status, result['type']), (200, 'membro'))
+
+    def test_legacy_member_with_another_domain_stays_editable_until_the_email_changes(self):
+        # O membro 'membro' foi criado com @example.com, antes da regra.
+        status, result = self.request('PUT', '/api/users/membro', {'name': 'Renomeado', 'email': 'membro@example.com'})
+        self.assertEqual((status, result['name']), (200, 'Renomeado'))
+        self.assertEqual(self.request('PUT', '/api/users/membro', {'password': 'nova-senha'})[0], 200)
+        self.assertEqual(self.request('PUT', '/api/users/membro', {'email': 'novo@example.com'})[0], 422)
+        with self.api.sessions() as db:
+            self.assertEqual(db.get(models.User, 'membro').email, 'membro@example.com')
+
+    def login(self, email, password):
+        return self.request('POST', '/api/auth/login', {'email': email, 'password': password}, role=None)
+
+    def test_five_wrong_passwords_lock_the_login_for_fifteen_minutes(self):
+        with self.api.sessions() as db:
+            db.get(models.User, 'membro').password_hash = auth.get_password_hash('senha-certa')
+            db.commit()
+        for attempt in range(4):
+            status, result = self.login('membro@example.com', 'errada')
+            self.assertEqual(status, 400, (attempt, result))
+        status, result = self.login('membro@example.com', 'errada')
+        self.assertEqual(status, 429, result)
+        self.assertIn('15 minutos', result['detail'])
+        # Bloqueado, nem a senha certa entra.
+        status, result = self.login('membro@example.com', 'senha-certa')
+        self.assertEqual(status, 429, result)
+        with self.api.sessions() as db:
+            user = db.get(models.User, 'membro')
+            self.assertEqual(user.failed_login_attempts, 0)
+            user.locked_until = datetime.now(timezone.utc) - timedelta(seconds=1)
+            db.commit()
+        status, result = self.login('membro@example.com', 'senha-certa')
+        self.assertEqual(status, 200, result)
+        with self.api.sessions() as db:
+            user = db.get(models.User, 'membro')
+            self.assertEqual((user.failed_login_attempts, user.locked_until), (0, None))
+
+    def test_successful_login_resets_the_failure_count(self):
+        with self.api.sessions() as db:
+            db.get(models.User, 'membro').password_hash = auth.get_password_hash('senha-certa')
+            db.commit()
+        for _ in range(4):
+            self.login('membro@example.com', 'errada')
+        self.assertEqual(self.login('membro@example.com', 'senha-certa')[0], 200)
+        for _ in range(4):
+            self.assertEqual(self.login('membro@example.com', 'errada')[0], 400)
+
+    def test_unknown_email_gets_the_same_answer_as_a_wrong_password(self):
+        with patch.object(auth, 'verify_password', wraps=auth.verify_password) as verify:
+            status, result = self.login('ninguem@example.com', 'qualquer')
+        self.assertEqual((status, result['detail']), (400, 'Email ou senha incorretos'))
+        # A senha é conferida contra um hash fictício, para o tempo de resposta não denunciar o e-mail.
+        verify.assert_called_once()
+
+    def test_passwords_need_six_characters_and_are_required_on_creation(self):
+        base = {'name': 'Novo', 'email': 'novo@example.com', 'cargo': 'Trainee', 'type': 'trainee'}
+        self.assertEqual(self.request('POST', '/api/users', base)[0], 422)
+        self.assertEqual(self.request('POST', '/api/users', {**base, 'password': '12345'})[0], 422)
+        status, created = self.request('POST', '/api/users', {**base, 'password': '123456'})
+        self.assertEqual(status, 200, created)
+        path = f"/api/users/{created['id']}"
+        self.assertEqual(self.request('PUT', path, {'password': 'curta'})[0], 422)
+        # Vazio mantém a senha atual, como no formulário de edição.
+        self.assertEqual(self.request('PUT', path, {'name': 'Renomeado', 'password': ''})[0], 200)
+        self.assertEqual(self.request('PUT', path, {'password': 'nova-senha'})[0], 200)
 
     def test_login_token_survives_email_change_and_legacy_token_works(self):
         with patch.object(auth, 'verify_password', return_value=True):
@@ -122,24 +213,24 @@ class AccessTests(unittest.TestCase):
             db.get(models.TrainingNode, node['id']).deadline = datetime(2030, 1, 3, 17)
             db.commit()
         _, listing = self.request('GET', '/api/activities', role='trainee')
-        self.assertEqual(listing[0]['deadline'], '2030-01-02T17:00:00Z')
+        # O prazo efetivo vem da etapa; a coluna da atividade fica intacta.
+        self.assertEqual((listing[0]['deadline'], listing[0]['deadline_from_trail']), ('2030-01-03T17:00:00Z', True))
         _, nodes = self.request('GET', '/api/nodes', role='trainee')
         self.assertEqual(nodes[0]['deadline'], '2030-01-03T17:00:00Z')
         status, content = self.request('GET', f"/api/nodes/{node['id']}/content", role='trainee')
         self.assertEqual(status, 200, content)
         self.assertEqual(content['node']['deadline'], '2030-01-03T17:00:00Z')
-        self.assertEqual(content['activity']['deadline'], '2030-01-02T17:00:00Z')
+        self.assertEqual(content['activity']['deadline'], '2030-01-03T17:00:00Z')
         with self.api.sessions() as db:
             self.assertEqual(db.get(models.Activity, activity['id']).deadline, datetime(2030, 1, 2, 17))
 
     def test_submissions_close_at_the_deadline_instant(self):
-        activity = self.create('activities', {
-            'title': 'Atividade', 'eixo': 'trainee', 'accepts_file': False, 'deadline': '2030-01-02T14:00:00-03:00',
-        })
-        node = self.create('nodes', {'type': 'activity', 'eixo': 'trainee', 'activity_id': activity['id'], 'is_released': True})
+        activity = self.create('activities', {'title': 'Atividade', 'eixo': 'trainee', 'accepts_file': False})
+        node = self.create('nodes', {'type': 'activity', 'eixo': 'trainee', 'activity_id': activity['id'],
+                                     'is_released': True, 'deadline': '2030-01-02T14:00:00-03:00'})
         deadline = datetime(2030, 1, 2, 17, tzinfo=timezone.utc)
         for delta, is_open in [(timedelta(microseconds=-1), True), (timedelta(), False), (timedelta(microseconds=1), False)]:
-            with self.subTest(delta=delta), patch('app.services.activity_service.datetime') as clock:
+            with self.subTest(delta=delta), patch('app.services.node_service.datetime') as clock:
                 clock.now.return_value = deadline + delta
                 _, listing = self.request('GET', '/api/activities', role='trainee')
                 self.assertEqual(listing[0]['effective_open'], is_open)

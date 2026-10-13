@@ -15,7 +15,7 @@ export interface TrainingNode {
   type: "activity" | "material" | "game"
   eixo: string
   game_revision_id?: string | null
-  game_format?: "quiz" | "scenario" | null
+  game_format?: import("@/features/games/types").GameFormat | null
   reference_id?: string | null
   prerequisite_node_id?: string | null
   /** Corrente que vale de fato: o escolhido à mão ou a etapa anterior do eixo. */
@@ -28,6 +28,7 @@ export interface TrainingNode {
   released_by: string | null
   unlocked: boolean
   completed: boolean
+  pending_review?: boolean
   user_score: number
   grade?: number | null
   allow_retry?: boolean

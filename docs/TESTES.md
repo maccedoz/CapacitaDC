@@ -17,7 +17,7 @@ npm run build
 
 O CI do GitHub (`.github/workflows/ci.yml`) roda esses mesmos passos em cada PR e em cada push em `main`: ruff e testes do backend; lint, tipos e build do frontend. O lint falha só com erros; os avisos de `any` explícito e de `setState` em efeitos ainda são tolerados.
 
-As suítes cobrem autenticação, permissões, criação e contratos das rotas, conteúdo bloqueado, conclusão das etapas, avaliação dos cinco formatos de jogos, tentativas repetidas, publicações, migrações, média ponderada e fila de correção.
+As suítes cobrem autenticação, permissões, criação e contratos das rotas, conteúdo bloqueado, conclusão das etapas, avaliação automática dos cinco formatos originais e correção manual de respostas abertas, tentativas repetidas, publicações, migrações, média ponderada e fila de correção. `test_access.py` também cobre a ausência de cadastro público, o bloqueio do login após 5 senhas erradas, a resposta igual para e-mail inexistente e o tamanho mínimo de senha; `test_managers.py` cobre a conferência da assinatura dos arquivos enviados. `test_batch_grading.py` cobre a correção em lote (tudo ou nada, média recalculada) e o registro das correções no histórico; `test_profile.py` cobre Meu perfil (nome, troca de senha derrubando sessões antigas, foto e quem pode vê-la), o aviso de troca de senha e as sugestões.
 
 `test_managers.py` cobre o gerente por eixo com dados descartáveis para os três eixos: nomeação pelo administrador e eixo obrigatório; gestão do PlugInfo (trainees, rotação, conteúdo e correções do eixo `trainee`) sem promoção de trainees; cada gerente contra os outros dois eixos, por listagem e por ID; requisições manipuladas (promoção, troca de eixo ou cargo, edição de outros gerentes); conteúdo `all`/`trainee` e vínculos cruzados; vínculos antigos compartilhados; correções que exigem membro e atividade do eixo; notas e perfil contados só no eixo; participantes sem acesso à lista de pessoas; nomes de eixo antigos equivalentes aos códigos e eixo desconhecido sem acesso; mudança de papel valendo para a sessão aberta; biblioteca com três etapas alcançadas de dez, agendamento, pré-requisito pendente, múltiplos vínculos e trilha não autorizada; e download de documentos por URL direta.
 
@@ -30,7 +30,7 @@ cd frontend
 npx playwright install chromium
 ```
 
-Cada jornada tem um script npm: `test:ui`, `test:release`, `test:deadlines`, `test:progress`, `test:games`, `test:corrections`, `test:assessments`, `test:attachments` e `test:manager`.
+Rode cada jornada com uma API de teste recém-iniciada: os dados que uma jornada cria (etapas, pré-requisitos) podem bloquear passos da seguinte. Cada jornada tem um script npm: `test:ui`, `test:release`, `test:deadlines`, `test:progress`, `test:games`, `test:corrections`, `test:assessments`, `test:attachments`, `test:manager`, `test:profile`, `test:batch`, `test:dashboards` e `test:achievements`.
 
 Alternativamente, `PLAYWRIGHT_PACKAGE` pode apontar para uma instalação de Playwright já disponível, e `PLAYWRIGHT_BROWSERS_PATH` para seus navegadores. Esses caminhos são configuração da máquina, não devem ser versionados.
 
@@ -161,3 +161,59 @@ Use uma execução nova do servidor descartável para esse roteiro. Ele altera a
 SQLite verifica regras e migrações sem depender do PostgreSQL. Isso não substitui validar a atualização de uma cópia do banco PostgreSQL antes de produção. Testes com API simulada verificam a interface; as jornadas reais e o teste do proxy verificam a integração.
 
 Não publique relatórios temporários, bancos, capturas de tela, caches de navegador ou planos pessoais junto com o código.
+
+## Perfil, aviso de senha e sugestões
+
+```bash
+BASE_URL=http://127.0.0.1:3017 PASSWORD=qa-test-password node frontend/tests/profile_journey.cjs
+```
+
+Usa a conta `primeiro-acesso@example.com`, a única do servidor de teste que começa com o aviso de troca de senha. Verifica o aviso no primeiro acesso, nome, foto e troca de senha em Meu perfil, a sugestão enviada pelo trainee e a leitura pelo admin, com o contador de não lidas. Disponível como `npm run test:profile`.
+
+## Correção em lote e atalhos
+
+`test_audit.py` verifica o registro das ações da gestão, preservação dos nomes após exclusão, ausência de senhas, permissões por eixo, filtros por dia local e paginação do histórico.
+
+```bash
+BASE_URL=http://127.0.0.1:3017 ADMIN_EMAIL=admin@example.com TRAINEE_EMAIL=trainee@example.com \
+  PASSWORD=qa-test-password node frontend/tests/batch_grading_journey.cjs
+```
+
+Cria quatro entregas pela API e verifica no navegador: `Enter` salva e leva o foco à próxima entrega sem recarregar a fila (um rascunho digitado em outra entrega continua lá), `J`/`K`, `F` e `Ctrl+Enter`, a lista de atalhos (`?`), a correção em lote com confirmação e o "corrigida por" nas corrigidas. Disponível como `npm run test:batch`.
+
+## Dashboards
+
+`test_dashboard.py` cobre público por trilha, médias, primeira tentativa por versão, acerto parcial e cenários, questionários antigos, trilhas vazias, permissões e quantidade constante de consultas.
+
+Com a API descartável e o frontend apontando para ela:
+
+```bash
+BASE_URL=http://127.0.0.1:3027 node frontend/tests/dashboards_journey.cjs
+```
+
+A jornada cria e depois remove um jogo de teste; confere a melhor nota, o uso da primeira tentativa para as questões, os gráficos nos dois temas, a largura no celular e os filtros do gerente. Disponível como `npm run test:dashboards`.
+
+## Novas conquistas
+
+`test_achievements.py` verifica os dez nomes, metas por jogos diferentes, primeira tentativa, ordem das reprovações e aprovações, metade da trilha, eixos vazios, conquistas existentes sem aviso, confirmação parcial e idempotente, permissões e migração 11 sem perda de estado.
+
+```bash
+BASE_URL=http://127.0.0.1:3027 node frontend/tests/achievements_journey.cjs
+```
+
+A jornada cria uma conta e dois jogos no banco descartável. Verifica o popup conjunto, a tentativa de confirmação após uma falha temporária, a lista de dez conquistas e a ausência do mesmo aviso em outro navegador. Disponível como `npm run test:achievements`.
+
+
+## Questionários abertos e organização por eixo
+
+`test_open_responses.py` cobre publicação, sigilo das orientações, respostas completas e imutáveis, pendência sem nota ou pontos, correção ponderada, repetição, edição de notas, idempotência, auditoria, dashboards, prazos de envio e correção, isolamento por eixo e participante e migração 12 sem perda de tentativas existentes.
+
+Com a API descartável em um banco novo e o frontend apontando para ela:
+
+```bash
+BASE_URL=http://127.0.0.1:3043 node frontend/tests/open_responses_journey.cjs
+```
+
+Também disponível como `npm run test:open-responses` dentro do frontend. Usa as contas `admin@example.com` e `trainee@example.com`, senha `qa-test-password`; pode substituí-las por `ADMIN_EMAIL`, `TRAINEE_EMAIL` e `PASSWORD`.
+
+A jornada verifica autoria de duas perguntas com pesos, publicação e prévia sem pontuação, grupos e filtro de eixo na biblioteca de jogos, criação do nó, materiais por eixo e tipo, respostas preservadas ao recarregar, estado aguardando correção sem edição, bloqueio da próxima etapa, falha de salvamento sem perder notas digitadas, correção com feedback, desbloqueio da trilha, resultado após recarregar, dashboard de médias por pergunta e nova tentativa. A tela do participante é conferida em largura de celular. O banco é descartável e recebe conteúdo de teste.

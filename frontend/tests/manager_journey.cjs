@@ -130,7 +130,7 @@ async function managerRunsOwnAxis(browser, admin, sales, connections) {
     ["PUT", `/api/materials/${sales.id}`, { name: "Invadido", type: "membro", eixo: "conexoes" }],
     ["GET", "/api/users/membro-vendas/profile"],
     ["PUT", "/api/users/membro-conexoes", { type: "gerente" }],
-    ["POST", "/api/users", { name: "X", email: `x-${run}@example.com`, cargo: "gerente", type: "gerente", eixo: "conexoes" }],
+    ["POST", "/api/users", { name: "X", email: `x-${run}@example.com`, cargo: "gerente", type: "gerente", eixo: "conexoes", password: "qa-test-password" }],
   ]) {
     assert.equal((await api(path, manager, method, body)).status, 403, `${method} ${path}`)
   }

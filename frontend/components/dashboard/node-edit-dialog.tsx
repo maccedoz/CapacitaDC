@@ -12,6 +12,7 @@ import type { TrainingNode } from "@/features/nodes/types"
 import type { Activity } from "@/features/activities/types"
 import type { Material } from "@/features/materials/types"
 import { AssessmentSettings, type AssessmentValues } from "@/components/activities/assessment-settings"
+import { groupByEixo } from "@/lib/roles"
 import { utcToLocalInput } from "@/lib/datetime"
 
 export function NodeEditDialog({ node, nodes, activities, materials, onClose, onSaved }: {
@@ -65,14 +66,14 @@ export function NodeEditDialog({ node, nodes, activities, materials, onClose, on
             <Label htmlFor="edit-node-activity">Atividade associada</Label>
             <select id="edit-node-activity" required className={selectClass} value={activityId} onChange={event => setActivityId(event.target.value)}>
               <option value="">Selecione uma atividade</option>
-              {activities.filter(inAxis).map(activity => <option key={activity.id} value={activity.id}>{activity.title}</option>)}
+              {groupByEixo(activities.filter(inAxis)).map(({ eixo, label, items }) => <optgroup key={eixo} label={label}>{items.map(activity => <option key={activity.id} value={activity.id}>{activity.title}</option>)}</optgroup>)}
             </select>
             <p className="text-sm text-muted-foreground">Material: {materials.find(material => material.id === activities.find(activity => activity.id === activityId)?.material_id)?.name || "Sem material associado"}. Altere esse vínculo na aba Atividades.</p>
           </div> : <div className="space-y-2">
             <Label htmlFor="edit-node-material">Material de apoio{node.type === "game" ? " (opcional)" : ""}</Label>
             <select id="edit-node-material" required={node.type === "material"} className={selectClass} value={materialId} onChange={event => setMaterialId(event.target.value)}>
               <option value="">Sem material</option>
-              {materials.filter(inAxis).map(material => <option key={material.id} value={material.id}>{material.name}</option>)}
+              {groupByEixo(materials.filter(inAxis)).map(({ eixo, label, items }) => <optgroup key={eixo} label={label}>{items.map(material => <option key={material.id} value={material.id}>{material.name}</option>)}</optgroup>)}
             </select>
           </div>}
           {node.game_revision_id && <div className="space-y-2">

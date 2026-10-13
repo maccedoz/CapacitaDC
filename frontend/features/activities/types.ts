@@ -32,7 +32,10 @@ export interface Activity {
   eixo: string
   material_id?: string | null
   accepts_file: boolean
+  /** Prazo efetivo: numa atividade da trilha, o mais tardio das etapas vinculadas. */
   deadline?: string | null
+  /** A atividade está numa etapa da trilha: o prazo é definido lá. */
+  deadline_from_trail?: boolean
   is_open: boolean
   effective_open: boolean
   submission_count: number
@@ -99,6 +102,9 @@ export interface ActivitySubmissionOut {
   activity_title?: string | null
   activity_weight?: number | null
   activity_eixo?: string | null
+  /** Quem lançou a nota atual, e quando. */
+  graded_by_name?: string | null
+  graded_at?: string | null
 }
 
 export interface SubmissionQueueFilters {

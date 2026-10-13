@@ -137,11 +137,6 @@ class GradingTests(unittest.TestCase):
             'type': 'trainee', 'password': 'test-only'})
         self.assertEqual(status, 200, created)
         self.assertIsNone(created['nota_rotacao'])
-        status, registered = self.request('POST', '/api/auth/register', {
-            'name': 'Público', 'email': 'publico@example.com', 'cargo': 'Trainee',
-            'password': 'test-only'}, role=None)
-        self.assertEqual(status, 200, registered)
-        self.assertIsNone(registered['nota_rotacao'])
 
     def test_backfill_corrects_values_typed_before_the_change(self):
         activity = self.activity(weight=2)

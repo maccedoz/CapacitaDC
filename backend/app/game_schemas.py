@@ -10,7 +10,7 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
-GameFormat = Literal["quiz", "scenario", "matching", "ordering", "categorization"]
+GameFormat = Literal["quiz", "open_response", "scenario", "matching", "ordering", "categorization"]
 Eixo = Literal["trainee", "vendas", "conexoes", "experiencia", "all"]
 
 
@@ -41,6 +41,23 @@ class QuizQuestion(StrictModel):
 
 class QuizConfig(StrictModel):
     questions: list[QuizQuestion] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def unique_questions(self):
+        if len({question.id for question in self.questions}) != len(self.questions):
+            raise ValueError("As perguntas precisam de identificadores únicos")
+        return self
+
+
+class OpenQuestion(StrictModel):
+    id: str = Field(min_length=1, max_length=100)
+    text: str = Field(min_length=1, max_length=10000)
+    weight: int = Field(default=1, ge=1, le=100)
+    grading_notes: str = Field(default="", max_length=10000)
+
+
+class OpenResponseConfig(StrictModel):
+    questions: list[OpenQuestion] = Field(min_length=1, max_length=100)
 
     @model_validator(mode="after")
     def unique_questions(self):
@@ -190,7 +207,7 @@ class CategorizationConfig(StrictModel):
 
 
 PUBLICATION_SCHEMAS: dict[str, type[StrictModel]] = {
-    "quiz": QuizConfig, "scenario": ScenarioConfig, "matching": MatchingConfig,
+    "quiz": QuizConfig, "open_response": OpenResponseConfig, "scenario": ScenarioConfig, "matching": MatchingConfig,
     "ordering": OrderingConfig, "categorization": CategorizationConfig,
 }
 
@@ -260,6 +277,21 @@ class PlacementAnswer(StrictModel):
     category_id: str
 
 
+class OpenAnswer(StrictModel):
+    question_id: str = Field(min_length=1, max_length=100)
+    text: str = Field(min_length=1, max_length=5000)
+
+
+class QuestionGrade(StrictModel):
+    question_id: str = Field(min_length=1, max_length=100)
+    grade: float = Field(ge=0, le=10, allow_inf_nan=False)
+    feedback: str = Field(default="", max_length=10000)
+
+
+class OpenResponseGrade(StrictModel):
+    questions: list[QuestionGrade] = Field(min_length=1, max_length=100)
+
+
 class AttemptComplete(StrictModel):
     """One list per format; the evaluator rejects lists that belong to another one."""
 
@@ -267,9 +299,10 @@ class AttemptComplete(StrictModel):
     matches: list[MatchAnswer] = Field(default_factory=list, max_length=50)
     order: list[str] = Field(default_factory=list, max_length=50)
     placements: list[PlacementAnswer] = Field(default_factory=list, max_length=100)
+    open_answers: list[OpenAnswer] = Field(default_factory=list, max_length=100)
 
     def submitted_fields(self) -> set[str]:
-        return {field for field in ("answers", "matches", "order", "placements") if getattr(self, field)}
+        return {field for field in ("answers", "matches", "order", "placements", "open_answers") if getattr(self, field)}
 
 
 class ScenarioAnswer(StrictModel):

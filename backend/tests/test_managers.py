@@ -78,6 +78,26 @@ class ManagerTests(unittest.TestCase):
                                                     db, db.get(models.User, role)))
         return result['url']
 
+    def test_material_upload_checks_the_file_signature(self):
+        cases = [
+            ('falso.pdf', b'<html><script>alert(1)</script>', 400),
+            ('imagem.png', b'%PDF-1.4', 400),
+            ('planilha.xlsx', b'nao e zip', 400),
+            ('foto.webp', b'RIFF\x00\x00\x00\x00WEBPVP8 ', 200),
+            ('apresentacao.pptx', b'PK\x03\x04resto', 200),
+            ('antigo.doc', b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1resto', 200),
+            ('notas.txt', b'qualquer texto', 200),
+        ]
+        for name, contents, expected in cases:
+            with self.subTest(name=name), self.api.sessions() as db:
+                try:
+                    asyncio.run(grades.upload_file(UploadFile(filename=name, file=BytesIO(contents)),
+                                                   db, db.get(models.User, 'admin')))
+                    status = 200
+                except HTTPException as error:
+                    status = error.status_code
+                self.assertEqual(status, expected)
+
     def can_download(self, role, url):
         with self.api.sessions() as db:
             try:
@@ -100,7 +120,8 @@ class ManagerTests(unittest.TestCase):
         for eixo in [None, '', 'pluginfo', 'trainee', 'Vend']:
             with self.subTest(eixo=eixo):
                 status, _ = self.request('POST', '/api/users', {
-                    'name': 'Sem eixo', 'email': 'sem@example.com', 'cargo': 'gerente', 'type': 'gerente', 'eixo': eixo})
+                    'name': 'Sem eixo', 'email': 'sem@example.com', 'cargo': 'gerente', 'type': 'gerente', 'eixo': eixo,
+                    'password': 'test-only'})
                 self.assertEqual(status, 422)
         # Promoção de alguém sem eixo exige o eixo no mesmo pedido.
         self.assertEqual(self.request('PUT', '/api/users/membro', {'type': 'gerente'})[0], 422)
@@ -113,14 +134,9 @@ class ManagerTests(unittest.TestCase):
         for role in ['organizador', 'gerente_vendas']:
             with self.subTest(role=role):
                 status, _ = self.request('POST', '/api/users', {
-                    'name': 'X', 'email': 'x@example.com', 'cargo': 'gerente', 'type': 'gerente', 'eixo': 'vendas'}, role=role)
+                    'name': 'X', 'email': 'x@example.com', 'cargo': 'gerente', 'type': 'gerente', 'eixo': 'vendas',
+                    'password': 'test-only'}, role=role)
                 self.assertEqual(status, 403)
-
-    def test_public_registration_still_creates_trainees(self):
-        with patch.object(auth, 'get_password_hash', return_value='test-only'):
-            status, body = self.request('POST', '/api/auth/register', {
-                'name': 'Público', 'email': 'publico@example.com', 'cargo': 'Gerente', 'password': 'x'}, role=None)
-        self.assertEqual((status, body['type']), (200, 'trainee'))
 
     # -- members -----------------------------------------------------------
 
@@ -145,7 +161,7 @@ class ManagerTests(unittest.TestCase):
                                                   ('DELETE', f'/api/users/{target}', None)]:
                         self.assertEqual(self.request(method, path, payload, role=manager)[0], 403, (method, target))
                 status, body = self.request('POST', '/api/users', {
-                    'name': 'Novo', 'email': f'novo_{axis}@example.com', 'cargo': 'membro', 'type': 'membro',
+                    'name': 'Novo', 'email': f'novo_{axis}@infojr.com.br', 'cargo': 'membro', 'type': 'membro',
                     'eixo': axis, 'password': 'test-only'}, role=manager)
                 self.assertEqual(status, 200, body)
                 self.assertEqual((body['type'], body['eixo'], body['cargo']), ('membro', axis, 'Membro'))
@@ -161,7 +177,8 @@ class ManagerTests(unittest.TestCase):
                 for kind, eixo in [('membro', other_axes(axis)[0]), ('membro', None),
                                    ('gerente', axis), ('admin', None), ('organizador', None)]:
                     status, _ = self.request('POST', '/api/users', {
-                        'name': 'Fora', 'email': f'fora_{axis}@example.com', 'cargo': kind, 'type': kind, 'eixo': eixo}, role=manager)
+                        'name': 'Fora', 'email': f'fora_{axis}@example.com', 'cargo': kind, 'type': kind, 'eixo': eixo,
+                        'password': 'test-only'}, role=manager)
                     self.assertEqual(status, 403, (kind, eixo))
         with self.api.sessions() as db:
             self.assertEqual(db.query(models.User).filter(models.User.name == 'Invadido').count(), 0)
@@ -194,7 +211,8 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(self.request('PUT', '/api/users/gerente_vendas', {'eixo': 'conexoes'})[0], 200)
         _, listing = self.request('GET', '/api/users', role=None, token=token)
         self.assertEqual(members(listing), ['membro_conexoes'])
-        self.assertEqual(self.request('PUT', '/api/users/gerente_vendas', {'type': 'membro', 'cargo': 'membro'})[0], 200)
+        self.assertEqual(self.request('PUT', '/api/users/gerente_vendas', {'type': 'membro', 'cargo': 'membro',
+                                                                       'email': 'gerente_vendas@infojr.com.br'})[0], 200)
         self.assertEqual(self.request('GET', '/api/grades', role=None, token=token)[0], 403)
         self.assertEqual(self.request('POST', '/api/materials', {'name': 'X', 'type': 'membro', 'eixo': 'conexoes'},
                                       role=None, token=token)[0], 403)

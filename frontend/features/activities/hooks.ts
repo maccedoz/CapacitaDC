@@ -161,10 +161,25 @@ export function useSubmissionQueue() {
 
   const setFilters = (next: SubmissionQueueFilters) => setFilterState({ ...next, offset: 0 })
   const setPage = (offset: number) => setFilterState(previous => ({ ...previous, offset: Math.max(0, offset) }))
+  // Atualiza a lista sem recarregar: recarregar trocaria a fila por um carregamento e
+  // apagaria o que está digitado nas outras entregas. No filtro de pendentes, a
+  // entrega corrigida sai da lista; nos demais, é substituída pela versão nova.
+  const applyGraded = (updated: ActivitySubmissionOut[]) => {
+    const byId = new Map(updated.map(item => [item.id, item]))
+    setItems(previous => filters.status === "pending"
+      ? previous.filter(item => !byId.has(item.id))
+      : previous.map(item => byId.get(item.id) ?? item))
+  }
+
   const grade = async (activityId: string, submissionId: string, value: number, feedback: string) => {
     const updated = await activitiesApi.gradeSubmission(activityId, submissionId, { grade: value, feedback })
-    // Reload the current filter: a newly corrected delivery leaves the pending queue.
-    setFilterState(previous => ({ ...previous }))
+    applyGraded([updated])
+    return updated
+  }
+
+  const gradeBatch = async (submissionIds: string[], value: number, feedback: string) => {
+    const updated = await activitiesApi.gradeBatch(submissionIds, value, feedback)
+    applyGraded(updated)
     return updated
   }
 
@@ -173,5 +188,5 @@ export function useSubmissionQueue() {
     setItems(previous => previous.filter(item => item.id !== submissionId))
   }
 
-  return { items, filters, setFilters, setPage, pageSize, hasMore, loading, error, refresh, grade, remove }
+  return { items, filters, setFilters, setPage, pageSize, hasMore, loading, error, refresh, grade, gradeBatch, remove }
 }

@@ -12,6 +12,7 @@ import { publicationIssues } from "@/features/games/validation"
 import type { Game, GameDraft, GameFormat } from "@/features/games/types"
 import { EditorField, editorSelectClass } from "./editor-fields"
 import { QuizEditor } from "./quiz-editor"
+import { OpenResponseEditor } from "./open-response-editor"
 import { ScenarioEditor } from "./scenario-editor"
 import { MatchingEditor } from "./matching-editor"
 import { OrderingEditor } from "./ordering-editor"
@@ -94,6 +95,7 @@ export function GameEditor({ game, format, axes, onChanged, onClose }: { game: G
       {savedGame?.published_revision && <p className="text-xs text-muted-foreground">O eixo permanece fixo após a publicação. Duplique o jogo para usar em outro eixo.</p>}
       <EditorField label="Instruções (opcional)"><Textarea value={draft.instructions} onChange={event => changeDraft({ ...draft, instructions: event.target.value })} /></EditorField>
       {draft.format === "quiz" && <QuizEditor config={draft.config} onChange={config => changeDraft({ ...draft, config })} />}
+      {draft.format === "open_response" && <OpenResponseEditor config={draft.config} onChange={config => changeDraft({ ...draft, config })} />}
       {draft.format === "scenario" && <ScenarioEditor config={draft.config} onChange={config => changeDraft({ ...draft, config })} />}
       {draft.format === "matching" && <MatchingEditor config={draft.config} onChange={config => changeDraft({ ...draft, config })} />}
       {draft.format === "ordering" && <OrderingEditor config={draft.config} onChange={config => changeDraft({ ...draft, config })} />}

@@ -9,17 +9,18 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app import models, schemas
 from app.auth import get_current_user, get_current_staff
-from app.services import blob_storage, access
+from app.services import access, audit, blob_storage, grading
 from app.services.roles import STAFF
 from app.services.node_service import blocked_activity_ids, lock_user
 from app.services.assessment_service import validate_settings, effective_grade
 from app.services.activity_service import (
-    activity_weight, graded_user_ids, is_effectively_open,
+    activity_deadline, activity_deadlines, activity_weight, graded_user_ids, is_effectively_open,
     recompute_user_grade, recompute_users_grades, submission_to_out,
 )
 from app.services.access import (
@@ -45,8 +46,7 @@ def _submission_activity(db, activity_id, user, node_id=None):
     if activity is None:
         raise HTTPException(404, "Atividade não encontrada")
     ensure_activity_access(user, activity)
-    if not is_effectively_open(activity):
-        raise HTTPException(400, "Esta atividade está fechada e não aceita mais envios")
+    _ensure_accepting(db, activity, node_id)
     _submission_nodes(db, activity, user, node_id)
     if not activity.allow_retry and db.query(models.ActivitySubmission).filter_by(activity_id=activity.id, user_id=user.id).first():
         raise HTTPException(409, "Esta atividade não permite repetição.")
@@ -146,6 +146,22 @@ def _validate_material_link(db: Session, user: models.User, material_id: str | N
     ensure_material_access(user, material, manage=True)
 
 
+def _ensure_accepting(db: Session, activity: models.Activity, node_id: str | None) -> None:
+    """Recusa a entrega com a atividade fechada ou o prazo vencido.
+
+    Pela etapa, vale o prazo dela; sem etapa informada, o prazo efetivo da
+    atividade (o mais tardio das etapas vinculadas, ou o próprio fora da trilha).
+    """
+    node = db.get(models.TrainingNode, node_id) if node_id else None
+    if node is not None and node.type == "activity" and node.activity_id == activity.id:
+        deadline = node.deadline
+    else:
+        # Etapa inválida: `_submission_nodes` responde com o erro adequado.
+        deadline, _ = activity_deadline(db, activity)
+    if not is_effectively_open(activity, deadline):
+        raise HTTPException(400, "Esta atividade está fechada e não aceita mais envios")
+
+
 def _submission_nodes(
     db: Session,
     activity: models.Activity,
@@ -218,22 +234,41 @@ def get_activities(
         ).all()
 
     blocked_activities = blocked_activity_ids(db, current_user)
+    activities = [act for act in activities if act.id not in blocked_activities]
+    activity_ids = [act.id for act in activities]
+    deadlines = activity_deadlines(db, activities)
     followed = access.managed_user_ids(db, current_user) if current_user.type == "gerente" else None
+
+    # Contagem e entrega própria em consultas únicas, não uma por atividade.
+    submission_counts: dict[str, int] = {}
+    my_submissions: dict[str, models.ActivitySubmission] = {}
+    if activity_ids:
+        counts_query = db.query(
+            models.ActivitySubmission.activity_id, func.count(models.ActivitySubmission.id),
+        ).filter(models.ActivitySubmission.activity_id.in_(activity_ids))
+        # O gerente conta só as entregas das pessoas que ele acompanha.
+        if followed is not None:
+            counts_query = counts_query.filter(models.ActivitySubmission.user_id.in_(followed))
+        submission_counts = dict(counts_query.group_by(models.ActivitySubmission.activity_id).all())
+        if not is_privileged:
+            for sub in db.query(models.ActivitySubmission).options(
+                selectinload(models.ActivitySubmission.attachments),
+            ).filter(
+                models.ActivitySubmission.activity_id.in_(activity_ids),
+                models.ActivitySubmission.user_id == current_user.id,
+            ).all():
+                my_submissions.setdefault(sub.activity_id, sub)
+
     result = []
     for act in activities:
-        if act.id in blocked_activities:
-            continue
-        effective_open = is_effectively_open(act)
-        # O gerente conta só as entregas das pessoas que ele acompanha.
-        submission_count = len(act.submissions) if followed is None else sum(
-            sub.user_id in followed for sub in act.submissions
-        )
+        deadline, from_trail = deadlines[act.id]
+        effective_open = is_effectively_open(act, deadline)
+        submission_count = submission_counts.get(act.id, 0)
 
         my_submission = None
-        if not is_privileged:
-            sub = next((s for s in act.submissions if s.user_id == current_user.id), None)
-            if sub:
-                my_submission = submission_to_out(sub, user=current_user, activity=act)
+        sub = my_submissions.get(act.id)
+        if sub:
+            my_submission = submission_to_out(sub, user=current_user, activity=act)
 
         result.append(schemas.ActivityOut(
             id=act.id,
@@ -241,7 +276,8 @@ def get_activities(
             description=act.description,
             eixo=act.eixo,
             accepts_file=act.accepts_file,
-            deadline=act.deadline,
+            deadline=deadline,
+            deadline_from_trail=from_trail,
             is_open=act.is_open,
             weight=activity_weight(act),
             allow_retry=act.allow_retry, is_required=act.is_required,
@@ -253,6 +289,22 @@ def get_activities(
             my_submission=my_submission,
         ))
     return result
+
+
+def _activity_audit(db: Session, activity: models.Activity) -> dict:
+    """Campos da atividade que o histórico acompanha; o material aparece pelo nome."""
+    material = db.get(models.Material, activity.material_id) if activity.material_id else None
+    return {
+        "título": activity.title,
+        "descrição": activity.description,
+        "prazo": activity.deadline,
+        "aberta": activity.is_open,
+        "peso": activity_weight(activity),
+        "obrigatória": activity.is_required,
+        "repetição": activity.allow_retry,
+        "exige arquivo": activity.accepts_file,
+        "material": material.name if material else None,
+    }
 
 
 @router.post("", response_model=schemas.ActivityOut)
@@ -279,6 +331,8 @@ def create_activity(
         created_at=datetime.now(timezone.utc),
     )
     db.add(new_activity)
+    audit.record(db, current_user, "activity.create", entity_type="activity", entity_id=new_activity.id,
+                 entity_name=new_activity.title, eixo=new_activity.eixo)
     db.commit()
     db.refresh(new_activity)
 
@@ -295,7 +349,7 @@ def create_activity(
         created_by=new_activity.created_by,
         created_at=new_activity.created_at,
         material_id=new_activity.material_id,
-        effective_open=is_effectively_open(new_activity),
+        effective_open=is_effectively_open(new_activity, new_activity.deadline),
         submission_count=0,
         my_submission=None,
     )
@@ -320,6 +374,7 @@ def update_activity(
     assessment_changed = any(key in changes and changes[key] != getattr(activity, key) for key in ("weight", "is_required"))
     if assessment_changed:
         access.ensure_no_foreign_submissions(current_user, activity)
+    before = _activity_audit(db, activity)
 
     if update_data.is_open is not None:
         activity.is_open = update_data.is_open
@@ -342,8 +397,13 @@ def update_activity(
         activity.weight = update_data.weight
 
     recompute_users_grades(db, affected)
+    details = audit.changes(before, _activity_audit(db, activity))
+    if details:
+        audit.record(db, current_user, "activity.update", entity_type="activity", entity_id=activity.id,
+                     entity_name=activity.title, eixo=activity.eixo, details=details)
     db.commit()
     db.refresh(activity)
+    deadline, from_trail = activity_deadline(db, activity)
 
     return schemas.ActivityOut(
         id=activity.id,
@@ -351,14 +411,15 @@ def update_activity(
         description=activity.description,
         eixo=activity.eixo,
         accepts_file=activity.accepts_file,
-        deadline=activity.deadline,
+        deadline=deadline,
+        deadline_from_trail=from_trail,
         is_open=activity.is_open,
         weight=activity_weight(activity),
         allow_retry=activity.allow_retry, is_required=activity.is_required,
         created_by=activity.created_by,
         created_at=activity.created_at,
         material_id=activity.material_id,
-        effective_open=is_effectively_open(activity),
+        effective_open=is_effectively_open(activity, deadline),
         submission_count=sum(access.can_manage_user(current_user, sub.user) for sub in activity.submissions),
         my_submission=None,
     )
@@ -377,6 +438,10 @@ def delete_activity(
     access.ensure_contained_in_axis(db, current_user, activity)
     access.ensure_no_foreign_submissions(current_user, activity)
     affected = graded_user_ids(db, activity.id)
+    submissions = len(activity.submissions)
+    audit.record(db, current_user, "activity.delete", entity_type="activity", entity_id=activity.id,
+                 entity_name=activity.title, eixo=activity.eixo,
+                 details={"entregas": submissions} if submissions else None)
     db.delete(activity)
     db.commit()
     recompute_users_grades(db, affected)
@@ -412,10 +477,7 @@ def submit_activity(
     if not activity:
         raise HTTPException(status_code=404, detail="Atividade não encontrada")
     ensure_activity_access(current_user, activity)
-    if not is_effectively_open(activity):
-        raise HTTPException(
-            status_code=400, detail="Esta atividade está fechada e não aceita mais envios"
-        )
+    _ensure_accepting(db, activity, getattr(submission_in, "node_id", None))
     file_url = (submission_in.file_url or "").strip() or None
     comment = (submission_in.comment or "").strip()
     attachment_ids = submission_in.attachment_ids
@@ -492,6 +554,9 @@ def delete_submission(
         raise HTTPException(status_code=403, detail="Organizadores só podem excluir entregas de trainees.")
 
     user_id = submission.user_id
+    audit.record(db, current_user, "submission.delete", entity_type="submission", entity_id=submission.id,
+                 entity_name=activity.title, eixo=activity.eixo, target=submission.user,
+                 details={"nota": submission.grade, "anexos": len(submission.attachments)})
     for attachment in list(submission.attachments):
         blob_storage.delete(attachment.storage_key)
         db.delete(attachment)
@@ -534,12 +599,8 @@ def grade_submission(
     ).first()
     if not submission:
         raise HTTPException(status_code=404, detail="Submissão não encontrada")
-    access.ensure_user_access(current_user, submission.user)
-    if current_user.type == "organizador" and (not submission.user or submission.user.type != "trainee"):
-        raise HTTPException(status_code=403, detail="Organizadores só podem corrigir entregas de trainees.")
-
-    submission.grade = grade_data.grade
-    submission.feedback = grade_data.feedback or ""
+    grading.ensure_can_grade(current_user, activity, submission)
+    grading.apply_grade(db, current_user, activity, submission, grade_data.grade, grade_data.feedback)
     # A média ponderada da pessoa deriva das notas: recalcular junto evita que a
     # planilha e o perfil mostrem um número velho até alguém recarregar.
     recompute_user_grade(db, submission.user_id)

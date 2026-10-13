@@ -35,6 +35,21 @@ def is_effectively_released(node: models.TrainingNode) -> bool:
     return released_at <= now
 
 
+def deadline_passed(deadline) -> bool:
+    """True a partir do instante do prazo. Sem prazo, nunca passa."""
+    if deadline is None:
+        return False
+    if deadline.tzinfo is None:
+        deadline = deadline.replace(tzinfo=timezone.utc)
+    return deadline <= datetime.now(timezone.utc)
+
+
+def ensure_before_node_deadline(node: models.TrainingNode) -> None:
+    """O prazo da etapa encerra jogos e entregas feitas por ela; a melhor nota já obtida fica."""
+    if deadline_passed(node.deadline):
+        raise HTTPException(status_code=400, detail="O prazo desta etapa terminou.")
+
+
 # ---------------------------------------------------------------------------
 # Query / listing
 # ---------------------------------------------------------------------------
@@ -119,10 +134,14 @@ def blocked_activity_ids(db: Session, current_user) -> set:
     if current_user.type in STAFF:
         return set()
     _, open_activities = open_content_ids(db, current_user)
+    # Só as colunas do vínculo, de todas as trilhas: uma etapa de outro eixo
+    # também prende a atividade.
     linked = {
-        node.activity_id or node.reference_id
-        for node in db.query(models.TrainingNode).all()
-        if node.type == "activity" or node.activity_id
+        activity_id or reference_id
+        for node_type, activity_id, reference_id in db.query(
+            models.TrainingNode.type, models.TrainingNode.activity_id, models.TrainingNode.reference_id,
+        ).all()
+        if node_type == "activity" or activity_id
     } - {None}
     return linked - open_activities
 
@@ -149,6 +168,9 @@ def list_nodes_for_user(
             models.UserNodeProgress.user_id == current_user.id
         ).all()
     }
+    pending_ids = {node_id for (node_id,) in db.query(models.GameAttempt.node_id).filter(
+        models.GameAttempt.user_id == current_user.id, models.GameAttempt.status == "pending_review",
+    ).all()}
 
     result = []
     for node in nodes:
@@ -163,17 +185,19 @@ def list_nodes_for_user(
             node, completed=completed, unlocked=unlocked, user_score=user_score,
             include_answers=is_privileged, effective_prerequisite_id=prerequisite_id,
             grade=node_progress.grade if node_progress else None,
+            pending_review=node.id in pending_ids,
         ))
     return result
 
 
 def node_to_out(node, *, completed=False, unlocked=True, user_score=0, include_answers=True,
-                effective_prerequisite_id=None, grade=None):
+                effective_prerequisite_id=None, grade=None, pending_review=False):
     """Use the same contract for list/create/release/order without losing metadata."""
     result = schemas.TrainingNodeGraphOut.model_validate(node)
     result.game_format = node.game_revision.format if node.game_revision else None
     result.effective_prerequisite_id = effective_prerequisite_id or node.prerequisite_node_id
     result.completed = completed
+    result.pending_review = pending_review
     result.unlocked = unlocked
     result.user_score = user_score
     result.grade = grade
@@ -285,6 +309,7 @@ def submit_game_score(
 
     if progress and progress.completed and not node.allow_retry:
         raise HTTPException(409, "Este jogo não permite repetição.")
+    ensure_before_node_deadline(node)
     score_added = 0
     if not progress:
         progress = models.UserNodeProgress(

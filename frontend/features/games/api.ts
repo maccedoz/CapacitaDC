@@ -1,5 +1,5 @@
 import { apiClient } from "@/lib/api-client"
-import type { AttemptPayload, Game, GameAttempt, GameDraft } from "./types"
+import type { AttemptPayload, Game, GameAttempt, GameDraft, GameReview, QuestionGrade, ReviewFilters } from "./types"
 
 export const gamesApi = {
   list: () => apiClient.get<Game[]>("/api/games"),
@@ -9,7 +9,12 @@ export const gamesApi = {
   publish: (id: string) => apiClient.post<Game>(`/api/games/${id}/publish`),
   duplicate: (id: string) => apiClient.post<Game>(`/api/games/${id}/duplicate`),
   remove: (id: string) => apiClient.delete(`/api/games/${id}`),
-  begin: (nodeId: string) => apiClient.post<GameAttempt>(`/api/nodes/${nodeId}/attempts`),
+  begin: (nodeId: string, newAttempt = false) => apiClient.post<GameAttempt>(`/api/nodes/${nodeId}/attempts${newAttempt ? "?new_attempt=true" : ""}`),
+  reviews: (filters: ReviewFilters) => {
+    const query = new URLSearchParams(Object.entries(filters).filter(([, value]) => value != null && value !== "").map(([key, value]) => [key, String(value)]))
+    return apiClient.get<GameReview[]>(`/api/game-reviews?${query}`)
+  },
+  gradeReview: (id: string, questions: QuestionGrade[]) => apiClient.post<GameReview>(`/api/game-reviews/${id}/grade`, { questions }),
   getAttempt: (id: string) => apiClient.get<GameAttempt>(`/api/game-attempts/${id}`),
   answer: (id: string, stepId: string, optionId: string) =>
     apiClient.post<GameAttempt>(`/api/game-attempts/${id}/answers`, { step_id: stepId, option_id: optionId }),

@@ -10,6 +10,8 @@
 | Membro | Consome conteúdo comercial, joga, entrega atividades e acompanha seus resultados. |
 | Trainee | Consome conteúdo para trainees, joga, entrega atividades e acompanha seus resultados. |
 
+Membros são cadastrados só pela gestão e sempre com e-mail terminado em `@infojr.com.br` (a API recusa outro domínio com 422 ao cadastrar, ao trocar o e-mail ou ao mudar alguém para membro). Membros antigos de outro domínio continuam editáveis enquanto o e-mail não for alterado.
+
 **PlugInfo é o nome da organização/papel, não um eixo de conteúdo.** Os eixos comerciais são Vendas, Conexões e Experiência do Consumidor. `trainee` identifica o público da capacitação inicial; `all` é o alcance compartilhado de um conteúdo, não outro eixo comercial. O organizador gerencia conteúdo de trainees; conteúdo compartilhado `all` é administrado pelo administrador.
 
 A API verifica permissões também nas operações por ID. Ocultar botões na interface não é a única proteção. Contas administrativas usam a pré-visualização dos jogos, que não gera pontos.
@@ -35,7 +37,7 @@ Usuários antigos podem ter o eixo gravado pelo nome de exibição ("Vendas", "C
 
 ## Caminhos principais
 
-- `/login` e `/cadastro`: autenticação e cadastro público de trainee.
+- `/login`: autenticação. Não há cadastro público: membros e trainees nunca criam a própria conta; a gestão cadastra as pessoas no painel, sempre com senha de pelo menos 6 caracteres.
 - `/`: painel de administração, com pessoas, materiais, atividades, **Correções**, notas e trilhas. Para o gerente, o painel se identifica como **Gerente — <eixo>** e mostra apenas o seu escopo: o eixo e o PlugInfo.
 - Aba **Atividades → Jogos** no painel (também disponível em `/jogos`): biblioteca e autoria de jogos, acessível a administradores, organizadores e gerentes (estes, no próprio eixo e no PlugInfo).
 - `/membros` e `/trainees`: consumo de conteúdo, trilhas e entregas.
@@ -46,7 +48,7 @@ Usuários antigos podem ter o eixo gravado pelo nome de exibição ("Vendas", "C
 
 ### Preparar a atividade
 
-Na aba **Atividades**, cadastre título, descrição, público, exigência de arquivo/link, prazo opcional, material de apoio opcional e as regras de avaliação: **Permitir repetição**, **Obrigatória (vale nota)** e **Peso da nota**. As mesmas três opções existem nas etapas de jogo, na criação e em **Editar nó**; numa etapa de atividade elas vêm da atividade vinculada.
+Na aba **Atividades**, cadastre título, descrição, público, exigência de arquivo/link, material de apoio opcional e as regras de avaliação: **Permitir repetição**, **Obrigatória (vale nota)** e **Peso da nota**. As mesmas três opções existem nas etapas de jogo, na criação e em **Editar nó**; numa etapa de atividade elas vêm da atividade vinculada.
 
 - Peso maior dá maior participação na média.
 - **Obrigatória exige peso maior que zero.** Uma atividade opcional não entra na média; ela ainda pode receber correção e feedback.
@@ -56,6 +58,17 @@ Na aba **Atividades**, cadastre título, descrição, público, exigência de ar
 
 Atividades podem ser associadas a etapas da trilha. Uma entrega válida conclui a etapa correspondente no servidor; essa conclusão não depende de já existir uma nota e não atribui a bonificação dos jogos. A chamada de entrega informa o ID da etapa quando ocorre pela trilha.
 
+### Prazo
+
+**O prazo é único e definido pela etapa da trilha** (em **Editar nó**), não pela atividade:
+
+- Entrega pela trilha: vale o prazo da etapa usada. A mesma atividade em duas etapas pode fechar em momentos diferentes.
+- Entrega sem etapa (aba **Atividades** do participante): vale o prazo mais tardio entre as etapas vinculadas; se alguma não tem prazo, a atividade fica sem prazo.
+- Atividade fora da trilha: vale o prazo da própria atividade, editado no formulário da atividade.
+- **Fechar** (manual) continua fechando, antes de qualquer prazo.
+
+O prazo fecha as entregas e o envio de anexos a partir do instante marcado. As listagens devolvem o prazo efetivo (`deadline`), `effective_open` pela mesma regra e `deadline_from_trail`; no leitor da etapa, o prazo é o dela. Numa atividade da trilha, o formulário da gestão mostra "Prazo definido na trilha" em vez do campo.
+
 ### Corrigir uma entrega
 
 1. Entre no painel administrativo e abra **Correções**.
@@ -63,6 +76,12 @@ Atividades podem ser associadas a etapas da trilha. Uma entrega válida conclui 
 3. Consulte a pessoa, a atividade, o peso, a data, o comentário e o link enviado. O link abre em outra aba.
 4. Digite a **nota de 0 a 10**, acrescente feedback e salve. Uma nota zero é válida.
 5. A média da pessoa é recalculada e a planilha de notas atualiza. No filtro de pendentes, a entrega corrigida sai da fila.
+
+Salvar uma nota não recarrega a fila: a entrega corrigida sai dos pendentes e o que estiver digitado nas outras continua lá. Cada entrega corrigida mostra quem lançou a nota atual e quando ("corrigida por Fulano em 10/10, 14:32").
+
+**Correção em lote:** marque as entregas (ou "Selecionar todas da página"), informe uma nota e, se quiser, um feedback comum, e confirme. É tudo ou nada: se alguma entrega não puder ser corrigida por quem pede, nenhuma muda. A média de cada pessoa é recalculada uma vez (`POST /api/submissions/grade-batch`).
+
+**Atalhos de teclado** (botão **Atalhos** ou `?`), na ordem da tela: `Enter` no campo de nota salva e vai para a próxima; `Ctrl+Enter` faz o mesmo no feedback; `J`/`K` vão para a próxima/anterior sem salvar; `X` marca para o lote; `O` abre o anexo ou link; `F` vai para o feedback; `Esc` volta do feedback para a nota. O campo de nota só aceita números, então as letras funcionam ali como atalhos; no feedback, texto livre, valem só `Ctrl+Enter` e `Esc`.
 
 A mesma correção também pode ser feita na lista de envios dentro de uma atividade. O administrador acompanha membros e trainees; o organizador só recebe na fila os envios de trainees em atividades que pode gerenciar; o gerente, os envios de membros do próprio eixo em atividades desse eixo — estar numa atividade do eixo não basta — e os de trainees, como o organizador.
 
@@ -88,11 +107,26 @@ Para trainees, o frontend não exibe troféus, pontos nem bonificações; mostra
 
 ### Gamificação dos membros
 
-Exclusiva para o perfil **membro**: `GET /api/gamification` responde 403 para trainees e perfis administrativos, e a aba **Conquistas** existe só no portal do membro. Nada é gravado: tudo é recalculado a cada consulta a partir das notas, então correções e novas tentativas valem na hora.
+Exclusiva para o perfil **membro**: `GET /api/gamification` responde 403 para trainees e perfis administrativos, e a aba **Conquistas** existe só no portal do membro. Pontos, níveis e conquistas são recalculados a cada consulta a partir das notas; apenas o estado dos avisos já vistos fica guardado.
 
 - **Pontos:** cada jogo (melhor nota) e cada entrega corrigida (nota efetiva, a maior entre a atual e a anterior) vale `nota × 10`, de 0 a 100. Opcionais também pontuam; entregas pendentes não.
 - **Nível:** 1 Iniciante (0), 2 Aprendiz (100), 3 Praticante (250), 4 Competente (450), 5 Avançado (700), 6 Especialista (1000) e 7 Mestre (1400 pontos). O cabeçalho mostra nível e pontos; a aba mostra quanto falta para o próximo.
-- **Conquistas:** Primeiro passo (concluir uma etapa), Nota máxima (um 10), Persistente (ser aprovado num jogo depois de uma tentativa abaixo de 7), Consistente (7 ou mais em cinco avaliações) e Trilha concluída (todas as etapas obrigatórias do eixo do membro). As que têm meta mostram o progresso.
+- **Conquistas:** não acrescentam pontos. As metas mostram o progresso, com jogos diferentes contados uma única vez mesmo quando o mesmo jogo aparece em mais de um nó.
+
+| Conquista | Regra |
+| --- | --- |
+| Hello, World! | Concluir uma etapa. |
+| Farmou Aura | Tirar 10 em um jogo ou entrega. |
+| Brasileiro não desiste nunca | Ser aprovado em um jogo depois de uma tentativa abaixo de 7. A reprovação precisa ocorrer antes da aprovação. |
+| C de uma equação | Tirar 7 ou mais em cinco avaliações. |
+| Zerou o game | Concluir todas as etapas obrigatórias do próprio eixo. |
+| Hat-trick | Tirar 10 em três jogos diferentes. |
+| Nem precisou de Ctrl+Z | Tirar 7 ou mais na primeira tentativa em cinco jogos diferentes da biblioteca. Questionários antigos não possuem histórico de tentativas para essa regra. |
+| No meio do caminho tinha uma pedra | Concluir pelo menos metade das etapas obrigatórias do próprio eixo, arredondando para cima. |
+| Mochileiro dos eixos | Concluir uma etapa em cada um dos três eixos, inclusive opcionais. |
+| Avatar: mestre dos três eixos | Concluir as etapas obrigatórias dos três eixos. Eixos sem etapas obrigatórias não contam como concluídos. |
+
+Na primeira consulta depois da atualização, conquistas existentes são marcadas como vistas sem popup. Depois disso, novas conquistas aparecem juntas num aviso com os nomes e as regras. Ao fechar, `POST /api/gamification/seen` confirma o aviso no banco, inclusive para outros navegadores. Falhas na confirmação permitem tentar novamente. O aviso aguarda o fechamento do leitor, do popup de senha e da comemoração de trilha, para não empilhar janelas.
 - **Ranking:** todos os membros por pontos, com empates na mesma posição (1, 1, 3). A aba começa no eixo do membro, com posições recalculadas dentro dele, e alterna para o geral. Mostra nome, eixo, nível e pontos; notas individuais não aparecem.
 
 ## Trilhas e acesso ao conteúdo
@@ -103,7 +137,7 @@ O administrador pode liberar etapas imediatamente ou agendar a liberação. Part
 
 O agendamento usa o horário local do navegador, com o fuso indicado junto ao campo. A atualização automática preserva alterações ainda não salvas; durante o salvamento, novas edições também ficam preservadas e o botão impede envios duplicados. Campo, legenda e status usam a mesma interpretação de data. Se a consulta feita no horário de liberação falhar ou chegar atrasada, a tela volta a consultar automaticamente.
 
-Prazos de atividades e de nós seguem a mesma conversão: aparecem no horário local do navegador no painel, na trilha e na aba de atividades, e salvar a edição de uma atividade ou de um nó sem mexer no prazo mantém o mesmo horário.
+Prazos de atividades e de nós seguem a mesma conversão (sobre qual prazo vale, veja **Prazo** em Atividades): aparecem no horário local do navegador no painel, na trilha e na aba de atividades, e salvar a edição de uma atividade ou de um nó sem mexer no prazo mantém o mesmo horário.
 
 Em `PATCH /api/nodes/{id}/release`, `released_at` exige fuso explícito (por exemplo, `2030-01-02T14:00:00-03:00` ou `2030-01-02T17:00:00Z`); `null` ou omissão mantêm a liberação imediata quando `is_released` é verdadeiro. A mesma regra vale para `deadline` na criação e na edição de atividades e de nós. A API converte esses horários para UTC antes de gravar nas colunas existentes, que guardam UTC sem fuso, independentemente do fuso da conexão com o banco, e sempre responde com `Z`. Datas novas sem fuso retornam 422. Registros antigos continuam sendo interpretados como UTC, conforme a regra anterior; esta correção não migra nem desloca horários já armazenados.
 
@@ -136,6 +170,7 @@ O autor cria rascunhos vazios e fornece o conteúdo. A plataforma não gera ativ
 | Formato | Como funciona |
 | --- | --- |
 | Questionário | Perguntas de escolha única ou múltipla, pesos e explicações. Na seleção múltipla, a questão começa valendo 100% do peso e cada erro (alternativa incorreta marcada ou correta não marcada) desconta `100% ÷ número de alternativas corretas`, com mínimo zero. Por exemplo, com 3 corretas, marcar 2 delas e mais 1 incorreta vale 33,3%; com 2 corretas, marcar as 2 e mais 1 incorreta vale 50%; o resultado mostra a questão como correta, parcialmente correta ou incorreta, com quantas corretas foram marcadas. |
+| Questionário aberto | Respostas em texto (até 5.000 caracteres por pergunta), com peso e orientação opcional reservada à gestão. Cada pergunta recebe nota de 0 a 10 e feedback manual; a nota do jogo é a média ponderada das perguntas. |
 | Cenário situacional | Contexto e decisões que conduzem a outros passos ou encerram o caminho. Cada decisão tem pontos e feedback; ciclos e passos inalcançáveis são rejeitados na publicação. |
 | Associação | Relacionar itens de duas listas, com possibilidade de alternativas distratoras. |
 | Ordenação | Colocar cartões na sequência correta. |
@@ -151,7 +186,23 @@ O servidor recebe respostas/decisões e calcula o resultado. Não aceita uma pon
 
 Com repetição permitida, a etapa só é concluída quando a melhor nota chega a **7**: abaixo disso, o resultado avisa a nota mínima, oferece **Tentar novamente** (sem limite de tentativas) e a etapa seguinte continua bloqueada. Uma tentativa pior depois da aprovação não reabre a etapa, e progressos concluídos antes desta regra continuam concluídos. Abrir o jogo de novo começa outra tentativa, e o resultado mostra a nota da tentativa e a melhor nota. Sem repetição, qualquer nota conclui a etapa. Sem repetição, a primeira tentativa concluída é definitiva: abrir de novo mostra o resultado, e uma tentativa em andamento quando a repetição for desligada não pode mais ser concluída.
 
+O prazo da etapa também encerra o jogo: depois dele não se inicia tentativa nem se conclui uma já aberta (inclusive para melhorar a nota), e decisões de cenário são recusadas com "O prazo desta etapa terminou." A melhor nota já obtida continua valendo, e um jogo sem repetição já concluído segue mostrando o resultado. O mesmo vale para quizzes antigos. A pré-visualização da gestão não é afetada.
+
 Cenários salvam as decisões no servidor. Os demais formatos mantêm as escolhas em andamento no navegador para retomada da tentativa; a avaliação é enviada ao concluir. Essa retomada local depende do mesmo navegador. Quizzes antigos continuam funcionando pelo fluxo legado de respostas avaliadas no servidor, com os pesos originais.
+
+### Correção dos questionários abertos
+
+O envio exige todas as perguntas respondidas uma vez e guarda as respostas na versão publicada da tentativa. O estado muda de `in_progress` para `pending_review`: nenhuma nota ou pontuação é atribuída antes da correção. O participante consulta suas respostas em **Aguardando correção**, inclusive depois do prazo, e usa **Atualizar correção** para consultar o resultado. O envio fica imutável e não permite outra tentativa enquanto aguarda a avaliação.
+
+Na aba **Correções → Questionários abertos**, a gestão filtra por situação, eixo e tipo de participante. A lista é paginada e agrupada por eixo. Ao abrir um envio, vê cada resposta e as orientações internas; atribui as notas de todas as perguntas e feedback opcional. Por exemplo, notas 9 e 3 em perguntas com pesos 2 e 1 produzem nota final 7. Uma falha ao salvar mantém os campos preenchidos. As correções de atividades, seus atalhos e a correção em lote continuam na subaba **Atividades**.
+
+O administrador corrige todos os envios; o organizador, apenas os trainees do eixo `trainee`; gerentes, trainees desse eixo e membros do próprio eixo em jogos desse eixo. Ter acesso de gestão ao jogo não autoriza corrigir um membro de outro eixo. Autor, data e alterações da correção entram no histórico, sem copiar as respostas ou as orientações internas.
+
+Salvar a correção conclui a tentativa (`completed`) e recalcula a melhor nota, a média ponderada, os pontos dos membros e os dashboards. Com repetição permitida, a melhor nota precisa chegar a 7 para concluir a etapa; sem repetição, qualquer nota corrigida conclui. A gestão pode corrigir após o prazo, mas o participante só inicia outra tentativa dentro dele. Reabrir um questionário corrigido mostra o resultado; **Repetir jogo** inicia uma nova tentativa explicitamente. Editar uma correção recalcula a melhor nota entre as tentativas e ajusta o progresso e os pontos, inclusive quando a nota é reduzida. Repetir o mesmo salvamento não duplica pontos nem registros no histórico.
+
+### Organização por eixo
+
+Materiais, atividades, jogos, bibliotecas dos participantes e seletores de conteúdo usam a mesma ordem de seções dos nós: **Trainee (Geral), Vendas, Conexões, Experiência do Consumidor e Todos os eixos**. Textos, documentos, vídeos e materiais de apoio acompanham o eixo do material. Buscas e filtros são aplicados antes de agrupar; conteúdos compartilhados continuam em sua própria seção quando aparecem no filtro de um eixo. A organização não amplia a visibilidade dos conteúdos: somente materiais de etapas alcançadas aparecem para participantes.
 
 ### Outros formatos possíveis, ainda não implementados
 
@@ -169,9 +220,27 @@ Cenários salvam as decisões no servidor. Os demais formatos mantêm as escolha
 
 Diálogos com ramificações já podem ser representados pelo cenário; uma versão com estado, recursos ou negociação dinâmica seria uma evolução desse formato. Cronômetro, embaralhamento, limite de tentativas e medalhas são recursos compartilhados, não tipos de jogo.
 
+## Meu perfil, aviso de senha e sugestões
+
+- **Meu perfil** (menu do usuário, no cabeçalho, para todos os perfis): a pessoa edita o próprio nome e a própria foto e troca a própria senha informando a atual. E-mail, cargo, eixo e perfil continuam com a gestão. Trocar a senha encerra as outras sessões abertas: tokens emitidos antes da troca deixam de valer.
+- **Foto:** JPEG, PNG ou WebP, até 2 MB, conferida pela assinatura do arquivo. O navegador recorta em quadrado e reduz para 256 px. A imagem fica no banco (`user_photos`) e é servida em `GET /api/users/{id}/photo` à própria pessoa e à gestão que pode ver essa pessoa, com cache privado (a URL muda a cada foto). Sem foto, aparecem as iniciais.
+- **Aviso de troca de senha:** no primeiro acesso, e de novo sempre que a gestão redefinir a senha, aparece "Quer trocar sua senha?", com **Trocar senha** e **Agora não**. Não obriga; qualquer das duas escolhas encerra o aviso. Quem já usava o sistema antes da migração 8 vê o aviso uma vez.
+- **Sugestões:** trainees enviam sugestões e ideias (até 2.000 caracteres) na aba **Sugestões** e veem as que enviaram. Não há anonimato: cada sugestão leva o nome de quem enviou. Administradores e organizadores leem na aba **Sugestões** do painel, com contador de não lidas, e marcam como lida ou não lida.
+- **Biblioteca:** a busca procura no nome, no texto e nos nomes dos documentos, sem diferenciar acentos. Há filtro por tipo (com vídeo, com documento, só texto) e, para membros, por eixo. Materiais com eixo "Todos os eixos" aparecem em qualquer eixo escolhido e também na biblioteca dos trainees.
+
+## Segurança do acesso
+
+- **Login:** 5 senhas erradas seguidas para o mesmo e-mail bloqueiam o login por 15 minutos (resposta 429, com o tempo restante). Um login certo zera a contagem. O contador fica no banco, porque a API roda em funções serverless. Um e-mail inexistente recebe a mesma resposta e leva o mesmo tempo que uma senha errada.
+- **Senhas:** pelo menos 6 caracteres, conferidos também no servidor, ao cadastrar e ao redefinir. Não existe senha padrão.
+- **CORS:** desligado por padrão, porque o navegador chama a API pela mesma origem. Origens extras entram por `CORS_ORIGINS`.
+- **Uploads de materiais:** além da extensão, o servidor confere a assinatura do arquivo (PDF, imagens, ZIP e formatos do Office). TXT e CSV não têm assinatura.
+- **Erros:** falhas não tratadas são registradas no log da API com o rastreio e respondem 500 sem detalhes internos.
+
 ## Arquitetura e contratos
 
-- `frontend/app/`: páginas e composição dos fluxos.
+- `frontend/app/`: páginas e composição dos fluxos. O painel da gestão guarda a aba na URL (`/?aba=correcoes`), para recarregar ou compartilhar o link sem perder a aba.
+- `frontend/components/dashboard/tabs/`: uma aba do painel por arquivo; os dados compartilhados (atividades, materiais, etapas, pessoas e escopo) vêm de `dashboard-context.tsx`.
+- `frontend/components/app-header.tsx`, `components/participant/` e `features/participant/`: cabeçalho comum e o que os portais de membros e trainees compartilham (guarda de acesso, leitor da etapa e biblioteca em `components/content/library.tsx`).
 - `frontend/features/`: tipos, chamadas de API e hooks de cada recurso.
 - `frontend/components/`: formulários, fila de correções, trilhas e jogos.
 - `backend/app/api/`: rotas HTTP.
@@ -181,6 +250,7 @@ Diálogos com ramificações já podem ser representados pelo cenário; uma vers
 - `backend/app/services/material_files.py`: autorização dos documentos dos materiais.
 - `backend/app/services/activity_service.py`: média ponderada e serialização de entregas.
 - `backend/app/services/game_service.py`: publicações, tentativas e avaliação.
+- `backend/app/services/open_response_service.py`: fila de respostas abertas e correção manual por pergunta.
 - `backend/app/models.py`, `schemas.py` e `game_schemas.py`: persistência e validação.
 - `backend/app/migrations.py`: evolução versionada do banco.
 
@@ -188,7 +258,10 @@ Rotas principais (consulte `/docs` na API para o contrato completo):
 
 | Recurso | Rotas |
 | --- | --- |
-| Sessão | `POST /api/auth/login`, `POST /api/auth/register`, `GET /api/auth/me` |
+| Sessão | `POST /api/auth/login`, `GET /api/auth/me` |
+| Meu perfil | `PATCH /api/auth/me`, `POST /api/auth/me/password`, `POST /api/auth/me/password-prompt/dismiss`, `PUT/DELETE /api/auth/me/photo`, `GET /api/users/{id}/photo` |
+| Sugestões | `POST /api/suggestions` e `GET /api/suggestions/mine` (trainees), `GET /api/suggestions` e `PATCH /api/suggestions/{id}` (administradores e organizadores) |
+| Saúde | `GET /api/health` (confere o banco) |
 | Pessoas | `GET/POST /api/users`, `PUT/DELETE /api/users/{id}`, `GET /api/users/{id}/profile` (somente gestão: participantes não listam pessoas) |
 | Materiais | `GET/POST /api/materials`, `PUT/DELETE /api/materials/{id}` |
 | Atividades | `GET/POST /api/activities`, `PATCH/DELETE /api/activities/{id}` |
@@ -200,9 +273,24 @@ Rotas principais (consulte `/docs` na API para o contrato completo):
 | Conteúdo da etapa | `GET /api/nodes/{id}/content`, `PATCH /api/nodes/{id}/activity` |
 | Jogos | `GET/POST /api/games`, edição, duplicação, publicação e versões por ID |
 | Tentativas | `POST /api/nodes/{id}/attempts`, leitura e respostas/conclusão em `/api/game-attempts/{id}` |
+| Respostas abertas | `GET /api/game-reviews` (situação, eixo, tipo e paginação), `POST /api/game-reviews/{id}/grade` (notas e feedback por pergunta) |
 | Arquivos | `POST /api/upload`, leitura autorizada pelo material em `GET /api/uploads/{pathname}` |
 
 As coleções aceitam as formas de URL utilizadas no frontend sem redirecionar a autenticação. As sessões novas usam ID de usuário estável no token. Respostas 401 significam sessão inválida, 403 falta de permissão, 422 erro de validação e 5xx falha do servidor. Erro temporário de `/auth/me` não apaga a sessão. A interface mostra o motivo de uma recusa 403 e confere a sessão de novo (também ao voltar para a aba); se papel ou eixo mudaram, o painel se recria sem manter dados do escopo anterior.
+
+## Dashboards da gestão
+
+A aba **Dashboards** permite selecionar a trilha e consultar conclusão por etapa liberada, média da melhor nota por jogo, quantidade de participantes que jogaram e percentual aprovado (nota 7 ou mais). Cada trilha considera apenas os membros do seu eixo ou os trainees, conforme o público.
+
+O acerto por questão usa a primeira tentativa concluída de cada participante por versão publicada. Repetições não entram; versões ficam separadas. A tabela também mostra a fração dos pontos obtidos, incluindo acerto parcial. Nos cenários, acertar é escolher a melhor opção do passo, e o denominador inclui apenas quem passou por ele. Questionários antigos não possuem esse detalhamento. Nos questionários abertos, o detalhamento mostra a nota média de cada pergunta pela primeira tentativa corrigida, em vez de uma taxa de acerto automático. Envios ainda pendentes não entram nas médias.
+
+O administrador consulta todas as trilhas; gerentes, seu eixo e o PlugInfo; organizadores, o PlugInfo. As rotas `GET /api/dashboard` e `GET /api/dashboard/games/{node_id}` aplicam essa permissão no servidor. Os gráficos acompanham o tema e incluem tabelas com os números.
+
+## Histórico de alterações
+
+A aba **Histórico** registra ações da gestão em correções, atividades, etapas, pessoas, materiais e jogos, com autor, data e campos alterados. O registro é salvo na mesma transação da ação. Nomes e eixos ficam guardados mesmo depois de exclusões; senhas nunca são registradas.
+
+O administrador vê tudo; gerentes veem seu eixo e o PlugInfo; organizadores veem o PlugInfo. A lista é paginada no servidor (`GET /api/audit`) e permite filtrar por autor, grupo de ação e período. O período corresponde aos dias no fuso do navegador, com datas armazenadas em UTC. Ações anteriores à implementação não são reconstruídas.
 
 ## Migrações e manutenção
 
@@ -214,6 +302,14 @@ As migrações rodam na inicialização da API e registram versões em `schema_m
 4. Garantia da coluna de peso, backup das notas manuais antigas em `nota_rotacao_backup_v4` e recálculo das médias pelas entregas corrigidas.
 5. Lista de links e tabela de anexos das entregas.
 6. Repetição, obrigatoriedade e peso nas atividades e etapas de jogo, nota de 0 a 10 no progresso dos jogos e melhor nota anterior nas entregas. Atividades com peso 0 passam a opcionais; jogos já concluídos recebem a nota pelo melhor resultado registrado; as médias são recalculadas, com backup em `nota_rotacao_backup_v6`.
+
+A migração 9 passa o prazo para as etapas: guarda os prazos das atividades em `activity_deadline_backup_v9` e copia o prazo da atividade para cada etapa de atividade que não tinha prazo. Onde a etapa já tinha prazo, ele passa a valer, sem alteração de dados.
+
+A migração 10 cria `audit_logs` e acrescenta autor e data da correção às entregas (`graded_by_id` e `graded_at`). Correções antigas continuam sem autor identificado.
+
+A migração 11 cria `member_achievement_states` para registrar a primeira consulta e os avisos de conquistas já vistos. Ela não recalcula nem altera pontos e notas.
+
+A migração 12 acrescenta `submitted_at`, `graded_at` e `graded_by_id` às tentativas de jogos e cria um índice para a fila de correções. Tentativas e resultados existentes são preservados; os cinco formatos anteriores seguem com avaliação automática.
 
 O papel de gerente reaproveita as colunas `users.type` e `users.eixo` e não exige migração de dados: nomes de eixo antigos são normalizados na leitura e convertidos para o código na próxima gravação. A tabela `material_uploads` é criada na inicialização como as demais tabelas novas.
 

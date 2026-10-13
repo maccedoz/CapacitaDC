@@ -5,6 +5,14 @@ export function publicationIssues(draft: GameDraft): string[] {
   const issues: string[] = []
   if (!draft.title.trim()) issues.push("Informe o título do jogo.")
   if (draft.format === "quiz") issues.push(...quizIssues(draft.config))
+  else if (draft.format === "open_response") {
+    if (!draft.config.questions.length) issues.push("Adicione pelo menos uma pergunta.")
+    if (draft.config.questions.length > 100) issues.push("Use no máximo 100 perguntas.")
+    draft.config.questions.forEach((question, index) => {
+      if (!question.text.trim()) issues.push(`Pergunta ${index + 1}: informe o enunciado.`)
+      if (!Number.isInteger(question.weight) || question.weight < 1 || question.weight > 100) issues.push(`Pergunta ${index + 1}: o peso deve ser um inteiro de 1 a 100.`)
+    })
+  }
   else if (draft.format === "scenario") issues.push(...scenarioIssues(draft.config))
   else if (draft.format === "matching") issues.push(...matchingIssues(draft.config))
   else if (draft.format === "ordering") issues.push(...orderingIssues(draft.config))

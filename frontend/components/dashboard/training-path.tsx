@@ -26,6 +26,7 @@ interface TrainingNode {
   x_pos?: number | null
   y_pos?: number | null
   completed: boolean
+  pending_review?: boolean
   unlocked: boolean
   user_score: number
   grade?: number | null
@@ -141,6 +142,7 @@ export function TrainingPath({ nodes, onSelectNode, highlighted = false, axisNam
                   </TooltipTrigger>
                   <TooltipContent side="top" align="center" className="max-w-[200px] text-center">
                     <p className="text-xs font-bold">{node.name}</p>
+                    {node.pending_review && <p className="mt-1 text-xs font-semibold text-amber-400 light:text-amber-700">Aguardando correção</p>}
                     {node.type === "game" && node.completed && (
                       <p className="mt-1 text-[10px] font-semibold text-emerald-400 light:text-emerald-700">{node.grade != null ? `Nota: ${node.grade.toFixed(2)} / 10` : "Concluído"}</p>
                     )}

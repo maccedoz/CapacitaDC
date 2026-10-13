@@ -4,16 +4,18 @@ api/users.py — User & member management endpoints (/api/users/*)
 
 import uuid
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Response
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app import models, schemas
 from app.auth import (
     get_password_hash,
     get_current_staff,
+    get_current_user,
 )
-from app.services import access
+from app.services import access, audit
+from app.services.roles import STAFF, normalize_axis
 from app.services.activity_service import axis_metrics
 
 router = APIRouter()
@@ -25,6 +27,23 @@ CARGO_LABELS = {
     "trainee": "Trainee",
     "gerente": "Gerente",
 }
+
+MEMBER_EMAIL_DOMAIN = "@infojr.com.br"
+
+
+def _ensure_member_email(email: str | None) -> None:
+    """Membros são da empresa: o e-mail precisa ser do domínio dela."""
+    if not (email or "").strip().lower().endswith(MEMBER_EMAIL_DOMAIN):
+        raise HTTPException(status_code=422, detail=f"E-mail de membro precisa terminar em {MEMBER_EMAIL_DOMAIN}.")
+
+
+def _person_audit(user: models.User) -> dict:
+    """Dados cadastrais que o histórico acompanha. A senha nunca entra aqui.
+
+    O eixo vai normalizado: regravar um nome de exibição antigo como código não é mudança.
+    """
+    return {"nome": user.name, "e-mail": user.email, "cargo": user.cargo, "perfil": user.type,
+            "eixo": normalize_axis(user.eixo) or user.eixo}
 
 
 def _scoped_to_manager(db: Session, current_user: models.User, user: models.User) -> schemas.UserOut:
@@ -67,6 +86,8 @@ def create_member(
     eixo = access.validate_user_assignment(current_user, role=user_in.type, eixo=user_in.eixo)
     if current_user.type == "gerente" and user_in.cargo.strip().lower() != user_in.type:
         raise HTTPException(status_code=403, detail="Gerentes cadastram apenas membros do próprio eixo e trainees.")
+    if user_in.type == "membro":
+        _ensure_member_email(user_in.email)
 
     if db.query(models.User).filter(models.User.email == user_in.email).first():
         raise HTTPException(status_code=400, detail="Este email já está cadastrado")
@@ -77,15 +98,19 @@ def create_member(
         id=str(uuid.uuid4()),
         name=user_in.name,
         email=user_in.email,
-        password_hash=get_password_hash(user_in.password or "123456"),
+        password_hash=get_password_hash(user_in.password),
         cargo=cargo_label,
         type=user_in.type,
         eixo=eixo,
-        photo=user_in.photo or "",
+        photo="",  # a foto é enviada pela própria pessoa, em Meu perfil
         nota_rotacao=None,
         pontos_acumulados=0,
     )
     db.add(new_user)
+    audit.record(db, current_user, "user.create", entity_type="user", entity_id=new_user.id,
+                 entity_name=new_user.name, target=new_user,
+                 details={key: value for key, value in (("perfil", new_user.type), ("eixo", new_user.eixo),
+                                                        ("cargo", new_user.cargo)) if value})
     db.commit()
     db.refresh(new_user)
     return new_user
@@ -109,6 +134,10 @@ def delete_user(
         )
     access.ensure_user_access(current_user, user)
 
+    # O registro guarda o nome da pessoa: depois da exclusão, o vínculo vira nulo.
+    audit.record(db, current_user, "user.delete", entity_type="user", entity_id=user.id,
+                 entity_name=user.name, target=user)
+    db.flush()
     db.query(models.UserNodeProgress).filter(
         models.UserNodeProgress.user_id == user_id
     ).delete()
@@ -132,10 +161,15 @@ def update_trainee(
     ).first()
     if not trainee:
         raise HTTPException(status_code=404, detail="Trainee não encontrado")
+    access.ensure_user_access(current_user, trainee)
 
     if trainee_update.rotacao is not None:
         if trainee_update.rotacao not in [1, 2]:
             raise HTTPException(status_code=400, detail="Rotação deve ser 1 ou 2")
+        if trainee_update.rotacao != trainee.rotacao:
+            audit.record(db, current_user, "user.rotation", entity_type="user", entity_id=trainee.id,
+                         entity_name=trainee.name, target=trainee,
+                         details={"rotação": {"antes": trainee.rotacao, "depois": trainee_update.rotacao}})
         trainee.rotacao = trainee_update.rotacao
 
     db.commit()
@@ -179,6 +213,12 @@ def update_user(
     if (current_user.type == "gerente" and user_update.cargo is not None
             and user_update.cargo.strip().lower() != (user.cargo or "").strip().lower()):
         raise HTTPException(status_code=403, detail="Gerentes não podem alterar o cargo do membro.")
+    # Membros antigos com outro domínio continuam editáveis até alguém mexer no e-mail.
+    email_changed = (user_update.email is not None
+                     and user_update.email.strip().lower() != (user.email or "").strip().lower())
+    if role == "membro" and (email_changed or user.type != "membro"):
+        _ensure_member_email(user_update.email if user_update.email is not None else user.email)
+    before = _person_audit(user)
 
     if user_update.name is not None:
         user.name = user_update.name
@@ -199,6 +239,14 @@ def update_user(
         user.cargo = "Gerente"
     if user_update.password is not None and user_update.password.strip() != "":
         user.password_hash = get_password_hash(user_update.password)
+        # Senha definida pela gestão: o popup volta a sugerir a troca no próximo acesso.
+        user.password_prompt_pending = True
+    details = audit.changes(before, _person_audit(user))
+    if user_update.password is not None and user_update.password.strip() != "":
+        details["senha"] = "redefinida"
+    if details:
+        audit.record(db, current_user, "user.update", entity_type="user", entity_id=user.id,
+                     entity_name=user.name, target=user, details=details)
 
     db.commit()
     db.refresh(user)
@@ -229,11 +277,15 @@ def get_user_profile(
     progress_list = db.query(models.UserNodeProgress).filter(
         models.UserNodeProgress.user_id == user_id
     ).all()
+    # As etapas do progresso vêm numa só consulta, não uma por linha.
+    node_ids = {p.node_id for p in progress_list}
+    nodes = {
+        node.id: node
+        for node in db.query(models.TrainingNode).filter(models.TrainingNode.id.in_(node_ids)).all()
+    } if node_ids else {}
     node_progress = []
     for p in progress_list:
-        node = db.query(models.TrainingNode).filter(
-            models.TrainingNode.id == p.node_id
-        ).first()
+        node = nodes.get(p.node_id)
         if node and (visible_node_eixos is None or node.eixo in visible_node_eixos):
             node_progress.append(
                 schemas.NodeProgressOut(
@@ -248,7 +300,7 @@ def get_user_profile(
 
     submissions_query = db.query(models.ActivitySubmission).join(models.Activity).filter(
         models.ActivitySubmission.user_id == user_id
-    )
+    ).options(selectinload(models.ActivitySubmission.attachments))
     visible_activity_eixos = visible_node_eixos
     if visible_activity_eixos is not None:
         submissions_query = submissions_query.filter(models.Activity.eixo.in_(visible_activity_eixos))
@@ -284,3 +336,25 @@ def get_user_profile(
         node_progress=node_progress,
         activity_submissions=activity_submissions,
     )
+
+
+@router.get("/{user_id}/photo")
+def get_user_photo(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """A própria pessoa e a gestão que pode ver essa pessoa."""
+    target = db.get(models.User, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    if target.id != current_user.id:
+        if current_user.type not in STAFF:
+            raise HTTPException(status_code=403, detail="Acesso não autorizado.")
+        access.ensure_user_access(current_user, target)
+    photo = db.get(models.UserPhoto, user_id)
+    if photo is None:
+        raise HTTPException(status_code=404, detail="Sem foto")
+    # A URL tem a versão da foto (?v=...), então ela pode ficar em cache privado.
+    return Response(content=photo.data, media_type=photo.content_type,
+                    headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"})

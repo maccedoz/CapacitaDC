@@ -30,7 +30,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Pencil, Trash2, X, Save, Eye, EyeOff } from "lucide-react"
-import { axisLabel, normalizeAxis, type MemberAxis } from "@/lib/roles"
+import { axisLabel, isMemberEmail, MEMBER_EMAIL_ERROR, normalizeAxis, type MemberAxis } from "@/lib/roles"
 
 interface UserEditModalProps {
   user: {
@@ -92,6 +92,13 @@ export function UserEditModal({
       newErrors.email = "Email é obrigatório"
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       newErrors.email = "Email inválido"
+    } else if (
+      // Membros antigos de outro domínio continuam editáveis até alguém mexer no e-mail.
+      (isManager ? user.type : type) === "membro"
+      && (email.trim().toLowerCase() !== user.email.trim().toLowerCase() || user.type !== "membro")
+      && !isMemberEmail(email)
+    ) {
+      newErrors.email = MEMBER_EMAIL_ERROR
     }
 
     if (password && password.length < 6) {
@@ -110,7 +117,7 @@ export function UserEditModal({
     const rot = rotacao ? parseInt(rotacao) : undefined
     await onSave(isManager ? {
       // Só o que o gerente pode alterar; o servidor recusa o resto de qualquer forma.
-      // O cargo não vai: é texto livre no cadastro público e não muda aqui.
+      // O cargo não vai: contas antigas do extinto cadastro público têm texto livre nele, e ele não muda aqui.
       name: name.trim(),
       email: email.trim(),
       type: user.type,

@@ -5,6 +5,7 @@ import type {
 
 export const gameFormatLabels: Record<GameFormat, string> = {
   quiz: "Questionário com opções",
+  open_response: "Questionário aberto",
   scenario: "Cenário situacional",
   matching: "Associação",
   ordering: "Ordenação",
@@ -13,6 +14,7 @@ export const gameFormatLabels: Record<GameFormat, string> = {
 
 export const gameFormatSummaries: Record<GameFormat, string> = {
   quiz: "Perguntas de escolha única ou múltipla, com pesos, gabarito e explicações.",
+  open_response: "Perguntas com respostas em texto, avaliadas pela gestão com nota e feedback.",
   scenario: "Situações com decisões, consequências e caminhos definidos por você.",
   matching: "Relacionar dois conjuntos de cartões, com opções extras sem par.",
   ordering: "Colocar etapas de um processo na sequência correta.",
@@ -60,6 +62,8 @@ export function newGame(format: GameFormat, eixo: string): GameDraft {
   const base = { title: "", instructions: "", eixo }
   switch (format) {
     case "quiz":
+      return { ...base, format, config: { questions: [] } }
+    case "open_response":
       return { ...base, format, config: { questions: [] } }
     case "scenario":
       return { ...base, format, config: { start_step_id: "", steps: [] } }
