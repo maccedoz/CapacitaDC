@@ -107,6 +107,8 @@ def create_member(
         pontos_acumulados=0,
     )
     db.add(new_user)
+    # O histórico referencia o novo usuário; grave-o antes, na mesma transação.
+    db.flush()
     audit.record(db, current_user, "user.create", entity_type="user", entity_id=new_user.id,
                  entity_name=new_user.name, target=new_user,
                  details={key: value for key, value in (("perfil", new_user.type), ("eixo", new_user.eixo),

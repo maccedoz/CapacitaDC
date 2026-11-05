@@ -2,6 +2,7 @@
 import json
 import unittest
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 import test_creation
 from app import models
@@ -18,6 +19,9 @@ class AuditTests(unittest.TestCase):
     def setUp(self):
         self.api = test_creation.CreationTests()
         self.api.setUp()
+        # PostgreSQL sempre verifica esses vínculos; SQLite os desliga por padrão.
+        with self.api.engine.connect() as connection:
+            connection.exec_driver_sql('PRAGMA foreign_keys=ON')
         self.api.app.include_router(users.router, prefix='/api/users')
         self.api.app.include_router(games.router, prefix='/api')
         self.api.app.include_router(audit.router, prefix='/api/audit')
@@ -139,6 +143,29 @@ class AuditTests(unittest.TestCase):
         self.ok('DELETE', f"/api/nodes/{second['id']}")
         deleted = self.only('node.delete')
         self.assertEqual((deleted.entity_id, deleted.entity_name, deleted.eixo), (second['id'], 'Leitura', 'trainee'))
+
+    def test_new_member_can_be_created_with_foreign_key_checks(self):
+        person = self.create('users', {'name': 'Novo membro', 'email': 'novo@infojr.com.br', 'cargo': 'membro',
+                                       'type': 'membro', 'eixo': 'experiencia', 'password': PASSWORD})
+        with self.api.sessions() as db:
+            member = db.get(models.User, person['id'])
+            self.assertIsNotNone(member)
+            self.assertEqual((member.email, member.type, member.eixo),
+                             ('novo@infojr.com.br', 'membro', 'experiencia'))
+        created = self.only('user.create')
+        self.assertEqual((created.actor_id, created.entity_id, created.target_user_id, created.eixo),
+                         ('admin', person['id'], person['id'], 'experiencia'))
+
+    def test_user_creation_rolls_back_if_audit_fails(self):
+        with patch.object(users.audit, 'record', side_effect=RuntimeError('Falha de auditoria simulada')):
+            with self.assertRaisesRegex(RuntimeError, 'Falha de auditoria simulada'):
+                self.request('POST', '/api/users', {
+                    'name': 'Novo membro', 'email': 'novo@infojr.com.br', 'cargo': 'membro',
+                    'type': 'membro', 'eixo': 'experiencia', 'password': PASSWORD,
+                })
+        with self.api.sessions() as db:
+            self.assertIsNone(db.query(models.User).filter_by(email='novo@infojr.com.br').first())
+            self.assertEqual(db.query(models.AuditLog).count(), 0)
 
     def test_people_never_store_passwords_and_deletion_keeps_the_entry(self):
         person = self.create('users', {'name': 'Fulana', 'email': 'fulana@example.com', 'cargo': 'trainee',
