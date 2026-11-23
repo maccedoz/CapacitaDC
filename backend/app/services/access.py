@@ -135,6 +135,37 @@ def chain_of(nodes) -> dict:
     return previous
 
 
+def satisfied_prerequisite_ids(nodes, completed: set[str], now: datetime) -> set[str]:
+    """Avançar não é concluir: atividades vencidas e alcançadas deixam de bloquear.
+
+    Só o prazo da etapa conta. A liberação e a corrente anterior continuam
+    obrigatórias, inclusive com pré-requisitos explícitos fora da ordem.
+    """
+    previous = chain_of(nodes)
+    expired = set()
+    for node in nodes:
+        if node.type != "activity" or not node.is_released or node.deadline is None:
+            continue
+        deadline = node.deadline
+        if deadline.tzinfo is None:
+            deadline = deadline.replace(tzinfo=timezone.utc)
+        released_at = node.released_at
+        if released_at is not None and released_at.tzinfo is None:
+            released_at = released_at.replace(tzinfo=timezone.utc)
+        if deadline <= now and (released_at is None or released_at <= now):
+            expired.add(node.id)
+
+    satisfied = set(completed)
+    while expired:
+        reached = {node_id for node_id in expired
+                   if previous[node_id] is None or previous[node_id] in satisfied}
+        if not reached:
+            break
+        satisfied.update(reached)
+        expired.difference_update(reached)
+    return satisfied
+
+
 def has_cycle(chain: dict) -> bool:
     """Se seguir os pré-requisitos a partir de alguma etapa volta a ela mesma."""
     for start in chain:
@@ -175,14 +206,17 @@ def ensure_node_access(
         released_at = released_at.replace(tzinfo=timezone.utc)
     if not node.is_released or (released_at and released_at > datetime.now(timezone.utc)):
         raise HTTPException(status_code=403, detail="Esta etapa ainda não foi liberada.")
-    prerequisite_id = effective_prerequisite_id(db, node)
+    nodes = db.query(models.TrainingNode).filter(
+        models.TrainingNode.eixo == node.eixo,
+    ).order_by(models.TrainingNode.order_index, models.TrainingNode.id).all()
+    prerequisite_id = chain_of(nodes).get(node.id)
     if prerequisite_id:
-        prerequisite = db.query(models.UserNodeProgress).filter(
+        completed = {progress.node_id for progress in db.query(models.UserNodeProgress).filter(
             models.UserNodeProgress.user_id == user.id,
-            models.UserNodeProgress.node_id == prerequisite_id,
             models.UserNodeProgress.completed.is_(True),
-        ).first()
-        if prerequisite is None:
+        ).all()}
+        satisfied = satisfied_prerequisite_ids(nodes, completed, datetime.now(timezone.utc))
+        if prerequisite_id not in satisfied:
             raise HTTPException(status_code=403, detail="Conclua a etapa anterior para continuar.")
 
 

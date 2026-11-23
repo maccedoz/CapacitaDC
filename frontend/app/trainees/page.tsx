@@ -99,7 +99,7 @@ export default function TraineesPage() {
             <div className="space-y-1">
               <h2 className="text-xl font-bold text-foreground">Sua Jornada de Capacitação</h2>
               <p className="text-xs text-muted-foreground">
-                Conclua cada etapa para desbloquear a próxima. Nós com cadeado estão bloqueados ou aguardando liberação pelo admin.
+                Conclua cada etapa para avançar. Atividades com prazo encerrado deixam de bloquear as próximas, que precisam estar liberadas pela gestão.
               </p>
             </div>
 

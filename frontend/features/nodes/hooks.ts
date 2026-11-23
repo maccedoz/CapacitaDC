@@ -71,30 +71,26 @@ export function useNodes() {
     refresh()
   }, [refresh])
 
-  // Auto-refresh: poll when there are scheduled nodes with future released_at
+  // Liberações agendadas e prazos podem mudar o acesso sem uma ação da pessoa.
   useEffect(() => {
     if (nodes.length === 0) return
 
-    // Find all nodes with a future scheduled release
     const now = Date.now()
-    const scheduledNodes = nodes.filter((n) => {
-      if (!n.is_released || !n.released_at) return false
-      const releaseMs = asUtcDate(n.released_at).getTime()
-      // A slow response may still say "locked" for a release that happened
-      // during the request. Fetch once more even if that instant has passed.
-      return releaseMs > now || releaseMs > lastReadStartedAt.current
+    const changesAt = nodes.flatMap(node => {
+      if (!node.is_released) return []
+      const dates = [node.released_at]
+      if (node.type === "activity" && !node.completed) dates.push(node.deadline ?? null)
+      // Refaça também consultas iniciadas antes de uma mudança e recebidas depois.
+      return dates.filter((date): date is string => !!date)
+        .map(date => asUtcDate(date).getTime())
+        .filter(instant => instant > now || instant > lastReadStartedAt.current)
     })
 
-    if (scheduledNodes.length === 0) return
-
-    // Find the nearest upcoming release
-    const nextReleaseMs = Math.min(
-      ...scheduledNodes.map((n) => asUtcDate(n.released_at!).getTime())
-    )
+    if (changesAt.length === 0) return
 
     // Schedule refresh at that exact moment (+ small buffer), capped at 60s interval
-    const msUntilRelease = nextReleaseMs - Date.now()
-    const delay = Math.min(Math.max(msUntilRelease + 1000, 1000), 60_000)
+    const msUntilChange = Math.min(...changesAt) - Date.now()
+    const delay = Math.min(Math.max(msUntilChange + 1000, 1000), 60_000)
 
     let cancelled = false
     const poll = async () => {

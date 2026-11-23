@@ -225,6 +225,7 @@ class TrainingNodeGraphOut(TrainingNodeOut):
     # Pré-requisito que vale de fato: o escolhido à mão ou a etapa anterior do eixo.
     effective_prerequisite_id: Optional[str] = None
     completed: bool = False
+    deadline_expired: bool = False
     pending_review: bool = False
     unlocked: bool = True
     user_score: int = 0

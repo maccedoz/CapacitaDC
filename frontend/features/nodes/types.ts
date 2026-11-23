@@ -28,6 +28,7 @@ export interface TrainingNode {
   released_by: string | null
   unlocked: boolean
   completed: boolean
+  deadline_expired?: boolean
   pending_review?: boolean
   user_score: number
   grade?: number | null

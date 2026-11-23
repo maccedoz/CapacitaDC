@@ -1,6 +1,6 @@
 """Prazo único, definido pela etapa da trilha: entregas, anexos, listagens, jogos e migração 9."""
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from fastapi import HTTPException
@@ -158,6 +158,173 @@ class ActivityDeadlineTests(unittest.TestCase):
         listed = self.listed(activity, role='admin')
         self.assertEqual((listed['deadline'], listed['deadline_from_trail'], listed['effective_open']),
                          ('2099-01-01T12:00:00Z', True, True))
+
+
+class ExpiredActivityProgressionTests(unittest.TestCase):
+    def setUp(self):
+        self.api = test_creation.CreationTests()
+        self.api.setUp()
+        self.request, self.create = self.api.request, self.api.create
+        with self.api.sessions() as db:
+            db.add(models.User(id='trainee', name='Trainee', email='trainee@example.com',
+                               password_hash='unused', cargo='Trainee', type='trainee'))
+            db.commit()
+
+    def tearDown(self):
+        self.api.tearDown()
+
+    def step(self, deadline=None, **changes):
+        activity = self.create('activities', {'title': 'Entrega', 'eixo': changes.get('eixo', 'trainee'),
+                                               'accepts_file': False})
+        node = self.create('nodes', {'type': 'activity', 'eixo': activity['eixo'], 'activity_id': activity['id'],
+                                     'is_released': True, 'deadline': deadline, **changes})
+        return node
+
+    def listed(self, node, role='trainee'):
+        status, nodes = self.request('GET', '/api/nodes', role=role)
+        self.assertEqual(status, 200, nodes)
+        return next(item for item in nodes if item['id'] == node['id'])
+
+    def assert_access(self, node, allowed, role='trainee'):
+        self.assertEqual(self.listed(node, role)['unlocked'], allowed)
+        status, body = self.request('GET', f"/api/nodes/{node['id']}/content", role=role)
+        self.assertEqual(status, 200 if allowed else 403, body)
+
+    def submit(self, node, with_node=True, role='trainee'):
+        payload = {'comment': 'Resposta da próxima atividade'}
+        if with_node:
+            payload['node_id'] = node['id']
+        return self.request('POST', f"/api/activities/{node['activity_id']}/submit", payload, role=role)
+
+    def test_next_step_opens_at_exact_deadline_with_no_completion_or_grade(self):
+        # O offset da Bahia e o UTC armazenado representam o mesmo instante.
+        missed = self.step('2030-01-02T14:00:00-03:00')
+        following = self.step()
+        deadline = datetime(2030, 1, 2, 17, tzinfo=timezone.utc)
+        for delta, allowed in [(timedelta(microseconds=-1), False), (timedelta(), True),
+                               (timedelta(microseconds=1), True)]:
+            with self.subTest(delta=delta), patch('app.services.node_service.datetime') as listing_clock, \
+                    patch('app.services.access.datetime') as access_clock:
+                listing_clock.now.return_value = access_clock.now.return_value = deadline + delta
+                self.assert_access(following, allowed)
+                self.assertFalse(self.listed(missed)['completed'])
+                self.assertEqual(self.listed(missed)['deadline_expired'], allowed)
+                self.assertIsNone(self.listed(missed)['grade'])
+        with self.api.sessions() as db:
+            self.assertEqual(db.query(models.UserNodeProgress).count(), 0)
+            self.assertEqual(db.query(models.ActivitySubmission).count(), 0)
+            self.assertIsNone(db.get(models.User, 'trainee').nota_rotacao)
+            self.assertEqual(db.get(models.User, 'trainee').pontos_acumulados, 0)
+
+    def test_next_activity_material_and_upload_are_available_and_delivery_succeeds(self):
+        missed = self.step('2020-01-01T00:00:00Z')
+        material = self.create('materials', {'name': 'Próximo material', 'eixo': 'trainee', 'type': 'trainee', 'text': 'Apoio'})
+        following = self.step()
+        self.request('PATCH', f"/api/activities/{following['activity_id']}", {'material_id': material['id']})
+        self.assert_access(following, True)
+        _, listing = self.request('GET', '/api/activities', role='trainee')
+        self.assertIn(following['activity_id'], {item['id'] for item in listing})
+        _, library = self.request('GET', '/api/materials', role='trainee')
+        self.assertIn(material['id'], {item['id'] for item in library})
+        with self.api.sessions() as db, patch.object(blob_storage, 'client_upload_token', return_value='token'):
+            token = activities.create_attachment_upload_token(following['activity_id'], schemas.AttachmentUploadRequest(
+                name='resposta.pdf', size=10, node_id=following['id']), db, db.get(models.User, 'trainee'))
+            self.assertEqual(token['token'], 'token')
+        status, body = self.submit(following)
+        self.assertEqual(status, 200, body)
+        self.assertTrue(self.listed(following)['completed'])
+        self.assertFalse(self.listed(missed)['completed'])
+        status, body = self.submit(missed)
+        self.assertEqual((status, body['detail']), (400, CLOSED))
+        with self.api.sessions() as db:
+            self.assertIsNone(db.query(models.ActivitySubmission).filter_by(activity_id=missed['activity_id']).first())
+            self.assertIsNone(db.query(models.UserNodeProgress).filter_by(node_id=missed['id']).first())
+            self.assertIsNone(db.get(models.User, 'trainee').nota_rotacao)
+
+    def test_delivery_without_node_id_uses_the_same_gate(self):
+        self.step('2020-01-01T00:00:00Z')
+        following = self.step()
+        status, body = self.submit(following, with_node=False)
+        self.assertEqual(status, 200, body)
+
+    def test_no_deadline_future_deadline_and_manual_close_still_require_delivery(self):
+        first, following = self.step(), self.step()
+        for deadline in [None, '2099-01-01T00:00:00Z']:
+            self.request('PATCH', f"/api/nodes/{first['id']}", {'deadline': deadline})
+            # Nem um prazo antigo na atividade, nem o fechamento manual dispensam a entrega.
+            with self.api.sessions() as db:
+                activity = db.get(models.Activity, first['activity_id'])
+                activity.deadline, activity.is_open = PAST, False
+                db.commit()
+            self.assert_access(following, False)
+            for with_node in [True, False]:
+                self.assertEqual(self.submit(following, with_node)[0], 403)
+
+    def test_next_step_still_requires_manual_and_scheduled_release(self):
+        self.step('2020-01-01T00:00:00Z')
+        following = self.step(is_released=False)
+        self.assert_access(following, False)
+        self.request('PATCH', f"/api/nodes/{following['id']}/release",
+                     {'is_released': True, 'released_at': '2099-01-01T00:00:00Z'})
+        self.assert_access(following, False)
+        self.request('PATCH', f"/api/nodes/{following['id']}/release", {'is_released': True})
+        self.assert_access(following, True)
+
+    def test_expired_step_that_was_not_released_cannot_be_skipped(self):
+        missed = self.step('2020-01-01T00:00:00Z', is_released=False)
+        following = self.step()
+        self.assert_access(following, False)
+        self.request('PATCH', f"/api/nodes/{missed['id']}/release",
+                     {'is_released': True, 'released_at': '2099-01-01T00:00:00Z'})
+        self.assert_access(following, False)
+        self.request('PATCH', f"/api/nodes/{missed['id']}/release", {'is_released': True})
+        self.assert_access(following, True)
+
+    def test_multiple_expired_steps_do_not_skip_an_earlier_active_step(self):
+        first = self.step()
+        missed = self.step('2020-01-01T00:00:00Z')
+        self.step('2020-01-02T00:00:00Z')
+        following = self.step()
+        self.assert_access(following, False)
+        status, body = self.submit(first)
+        self.assertEqual(status, 200, body)
+        self.assert_access(following, True)
+        self.assertFalse(self.listed(missed)['completed'])
+
+    def test_explicit_prerequisites_are_respected_even_out_of_order(self):
+        anchor = self.step()
+        missed = self.step('2020-01-01T00:00:00Z')
+        following = self.step(prerequisite_node_id=missed['id'])
+        # O pré-requisito da atividade vencida está depois dela na ordem da tela.
+        required = self.step(prerequisite_node_id=anchor['id'])
+        status, body = self.request('PATCH', f"/api/nodes/{missed['id']}", {'prerequisite_node_id': required['id']})
+        self.assertEqual(status, 200, body)
+        self.assertEqual(self.submit(anchor)[0], 200)
+        self.assert_access(following, False)
+        status, body = self.submit(required)
+        self.assertEqual(status, 200, body)
+        self.assert_access(following, True)
+
+    def test_extending_the_deadline_restores_the_delivery_requirement(self):
+        missed, following = self.step('2020-01-01T00:00:00Z'), self.step()
+        self.assert_access(following, True)
+        self.request('PATCH', f"/api/nodes/{missed['id']}", {'deadline': '2099-01-01T00:00:00Z'})
+        self.assert_access(following, False)
+        self.assertEqual(self.submit(missed)[0], 200)
+        self.assert_access(following, True)
+
+    def test_expired_games_still_require_completion(self):
+        self.create('nodes', {'type': 'game', 'eixo': 'trainee', 'is_released': True,
+            'deadline': '2020-01-01T00:00:00Z', 'questions': [{'text': 'Pergunta', 'options': [
+                {'text': 'Sim', 'is_correct': True}, {'text': 'Não'}]}]})
+        self.assert_access(self.step(), False)
+
+    def test_same_rule_applies_to_members_without_changing_axis_permissions(self):
+        self.step('2020-01-01T00:00:00Z', eixo='vendas')
+        following = self.step(eixo='vendas')
+        self.assert_access(following, True, role='membro')
+        self.assertEqual(self.submit(following, role='membro')[0], 200)
+        self.assertEqual(self.request('GET', f"/api/nodes/{following['id']}/content", role='trainee')[0], 403)
 
 
 class GameDeadlineTests(unittest.TestCase):

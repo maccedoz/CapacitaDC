@@ -11,7 +11,7 @@ from sqlalchemy import update
 from fastapi import HTTPException
 
 from app import models, schemas
-from app.services.access import allowed_node_eixos, chain_of
+from app.services.access import allowed_node_eixos, chain_of, satisfied_prerequisite_ids
 from app.services.roles import STAFF
 
 
@@ -70,8 +70,9 @@ def unlock_map(db: Session, current_user, nodes) -> dict:
         ).all()
     }
     previous = chain_of(nodes)
+    satisfied = satisfied_prerequisite_ids(nodes, completed, datetime.now(timezone.utc))
     return {
-        node.id: (previous[node.id] is None or previous[node.id] in completed)
+        node.id: (previous[node.id] is None or previous[node.id] in satisfied)
         and is_effectively_released(node)
         for node in nodes
     }
@@ -197,6 +198,7 @@ def node_to_out(node, *, completed=False, unlocked=True, user_score=0, include_a
     result.game_format = node.game_revision.format if node.game_revision else None
     result.effective_prerequisite_id = effective_prerequisite_id or node.prerequisite_node_id
     result.completed = completed
+    result.deadline_expired = deadline_passed(node.deadline)
     result.pending_review = pending_review
     result.unlocked = unlocked
     result.user_score = user_score
