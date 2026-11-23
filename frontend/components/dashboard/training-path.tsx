@@ -1,6 +1,6 @@
 "use client"
 
-import { BookOpen, ClipboardList, Gamepad2, Lock, Check } from "lucide-react"
+import { BookOpen, ClipboardList, Gamepad2, Lock, Check, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { asUtcDate } from "@/lib/datetime"
@@ -26,6 +26,7 @@ interface TrainingNode {
   x_pos?: number | null
   y_pos?: number | null
   completed: boolean
+  deadline_expired?: boolean
   pending_review?: boolean
   unlocked: boolean
   user_score: number
@@ -98,8 +99,8 @@ export function TrainingPath({ nodes, onSelectNode, highlighted = false, axisNam
             const length = Math.hypot(dx, dy) || 1
             const trimX = (dx / length) * LINE_GAP
             const trimY = (dy / length) * LINE_GAP
-            // Sólida quando a etapa anterior foi concluída: a linha mostra a regra real.
-            const open = previous.completed
+            // O acesso também pode vir do prazo encerrado de uma atividade anterior.
+            const open = previous.completed || node.unlocked
             return (
               <line key={`linha-${previous.id}-${node.id}`}
                 x1={previous.x + trimX} y1={previous.y + trimY}
@@ -113,10 +114,12 @@ export function TrainingPath({ nodes, onSelectNode, highlighted = false, axisNam
         </svg>
 
         {placed.map(node => {
+          const missedDeadline = node.type === "activity" && !node.completed && node.deadline_expired
           let style = "bg-muted text-muted-foreground border-border"
           if (node.unlocked) {
             style = node.completed
               ? "bg-emerald-600 border-emerald-500 text-white hover:bg-emerald-700 shadow-md shadow-emerald-500/10"
+              : missedDeadline ? "bg-amber-600 border-amber-500 text-white hover:bg-amber-700"
               : "bg-primary border-primary text-white hover:brightness-110 shadow-md shadow-primary/20 ring-4 ring-primary/20"
           }
           const scheduled = node.is_released && node.released_at && asUtcDate(node.released_at) > new Date()
@@ -134,6 +137,7 @@ export function TrainingPath({ nodes, onSelectNode, highlighted = false, axisNam
                         }`}>
                         {node.completed ? <Check className="size-6 stroke-[3px]" />
                           : !node.unlocked ? <Lock className="size-5" />
+                          : missedDeadline ? <Clock className="size-6" />
                           : node.type === "material" ? <BookOpen className="size-6" />
                           : node.type === "activity" ? <ClipboardList className="size-6" />
                           : <Gamepad2 className="size-6" />}
@@ -142,6 +146,7 @@ export function TrainingPath({ nodes, onSelectNode, highlighted = false, axisNam
                   </TooltipTrigger>
                   <TooltipContent side="top" align="center" className="max-w-[200px] text-center">
                     <p className="text-xs font-bold">{node.name}</p>
+                    {missedDeadline && <p className="mt-1 text-xs text-amber-400 light:text-amber-700">Prazo encerrado · atividade não entregue</p>}
                     {node.pending_review && <p className="mt-1 text-xs font-semibold text-amber-400 light:text-amber-700">Aguardando correção</p>}
                     {node.type === "game" && node.completed && (
                       <p className="mt-1 text-[10px] font-semibold text-emerald-400 light:text-emerald-700">{node.grade != null ? `Nota: ${node.grade.toFixed(2)} / 10` : "Concluído"}</p>
@@ -167,6 +172,7 @@ export function TrainingPath({ nodes, onSelectNode, highlighted = false, axisNam
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
+              {missedDeadline && node.unlocked && <span className="absolute left-1/2 top-full mt-1 w-40 -translate-x-1/2 text-center text-[10px] text-amber-400 light:text-amber-700">Prazo encerrado · não entregue</span>}
             </div>
           )
         })}

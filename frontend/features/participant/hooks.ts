@@ -1,6 +1,6 @@
 // features/participant/hooks.ts — O que os portais de membros e trainees têm em comum.
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { homePath, type UserRole } from "@/lib/roles"
@@ -33,6 +33,16 @@ export function useParticipantPortal(role: Extract<UserRole, "membro" | "trainee
       else if (user.type !== role) router.push(homePath(user.type))
     }
   }, [user, isLoading, router, role])
+
+  const reachedNodeIds = nodes.filter(node => node.unlocked).map(node => node.id).sort().join(",")
+  const lastReachedNodeIds = useRef("")
+  useEffect(() => {
+    // Uma etapa aberta pelo relógio também libera a atividade e a biblioteca.
+    if (lastReachedNodeIds.current === reachedNodeIds) return
+    lastReachedNodeIds.current = reachedNodeIds
+    void refreshMaterials()
+    void refreshActivities()
+  }, [reachedNodeIds, refreshMaterials, refreshActivities])
 
   const refreshProgress = async () => {
     // The submission is already saved; a refresh failure must not be reported as a failed submission.

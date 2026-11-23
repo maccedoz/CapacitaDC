@@ -315,6 +315,85 @@ async function checkSlowParticipantRead(browser) {
   } finally { await context.close() }
 }
 
+async function checkActivityDeadline(browser, { slow = false, fail = false } = {}) {
+  const context = await browser.newContext({ timezoneId: "America/Bahia", locale: "pt-BR" })
+  const page = await context.newPage()
+  page.setDefaultTimeout(15000)
+  const user = { ...admin, id: "deadline-trainee", type: "trainee", cargo: "trainee", eixo: "trainee" }
+  const deadline = new Date(now.getTime() + 3000)
+  const started = deferred(), resume = deferred()
+  let failNext = false
+  let contentAvailable = false
+  await page.clock.install({ time: now })
+  await page.clock.pauseAt(new Date(now.getTime() + 1000))
+  await context.addInitScript(user => {
+    localStorage.setItem("token", "deadline-test-token")
+    localStorage.setItem("currentUser", JSON.stringify(user))
+  }, user)
+  await context.route("**/api/**", async route => {
+    const pathname = new URL(route.request().url()).pathname
+    if (pathname === "/api/auth/me") return fulfill(route, 200, user)
+    if (pathname === "/api/activities") return fulfill(route, 200, contentAvailable ? [{
+      id: "next-activity", title: "Atividade liberada após prazo", eixo: "trainee", effective_open: true,
+      accepts_file: false, is_open: true, weight: 1, is_required: true, allow_retry: true,
+    }] : [])
+    if (pathname === "/api/materials") return fulfill(route, 200, contentAvailable ? [{
+      id: "next-material", name: "Material liberado após prazo", type: "trainee", eixo: "trainee",
+      text: "Material da próxima etapa", documents: [], videos: [],
+    }] : [])
+    if (pathname !== "/api/nodes") return fulfill(route, 200, [])
+    if (failNext) {
+      failNext = false
+      return fulfill(route, 503, { detail: "Falha temporária no prazo" })
+    }
+    const expired = await page.evaluate(instant => Date.now() >= instant, deadline.getTime())
+    if (slow && !expired) { started.resolve(); await resume.promise }
+    contentAvailable = expired
+    const base = { type: "activity", eixo: "trainee", is_released: true, released_at: null,
+      completed: false, user_score: 0, questions: [] }
+    return fulfill(route, 200, [
+      { ...base, id: "missed", name: "Atividade pendente", order_index: 0, unlocked: true,
+        activity_id: "missed-activity", deadline: deadline.toISOString(), deadline_expired: expired },
+      { ...base, id: "next", name: "Próxima etapa", order_index: 1, unlocked: expired,
+        activity_id: "next-activity", effective_prerequisite_id: "missed", deadline: null },
+    ])
+  })
+  const listResponse = () => page.waitForResponse(response => new URL(response.url()).pathname === "/api/nodes")
+  try {
+    const initialResponse = listResponse()
+    await page.goto(`${baseURL}/trainees`)
+    if (slow) {
+      await started.promise
+      await page.clock.runFor(4000)
+      resume.resolve()
+    }
+    await (await initialResponse).finished()
+    await page.clock.runFor(25)
+    const next = page.getByRole("button", { name: "Próxima etapa", exact: true })
+    await next.waitFor()
+    assert.equal(await next.isDisabled(), true)
+    failNext = fail
+    const updated = listResponse()
+    await page.clock.runFor(slow ? 1500 : 4000)
+    await (await updated).finished()
+    await page.clock.runFor(25)
+    if (fail) {
+      assert.equal(await next.isDisabled(), true)
+      const retried = listResponse()
+      await page.clock.runFor(60000)
+      await (await retried).finished()
+      await page.clock.runFor(25)
+    }
+    assert.equal(await next.isEnabled(), true)
+    await page.getByText("Prazo encerrado · não entregue", { exact: true }).waitFor()
+    await page.getByRole("tab", { name: /Atividades/ }).click()
+    await page.getByText("Atividade liberada após prazo", { exact: true }).waitFor()
+    await page.getByRole("tab", { name: /Biblioteca/ }).click()
+    await page.getByText("Material liberado após prazo", { exact: true }).waitFor()
+    console.log(`PASS prazo de atividade: avanço e conteúdo atualizam sem entrega${slow ? ", consulta demorada" : fail ? ", recuperação após falha" : ""}`)
+  } finally { resume.resolve(); await context.close() }
+}
+
 async function main() {
   const browser = await playwright.chromium.launch({ headless: true })
   try {
@@ -328,7 +407,10 @@ async function main() {
     await checkReleaseBoundary(browser)
     await checkPollingRecovery(browser)
     await checkSlowParticipantRead(browser)
-    console.log("11 cenários de agendamento passaram.")
+    await checkActivityDeadline(browser)
+    await checkActivityDeadline(browser, { slow: true })
+    await checkActivityDeadline(browser, { fail: true })
+    console.log("14 cenários de agendamento e avanço por prazo passaram.")
   } finally { await browser.close() }
 }
 

@@ -68,11 +68,15 @@ BASE_URL=http://127.0.0.1:3017 node frontend/tests/node_release.cjs
 BASE_URL=http://127.0.0.1:3017 node frontend/tests/deadlines.cjs
 ```
 
-`node_release.cjs` intercepta a API e controla o relógio do navegador para verificar fusos, preservação do horário após salvar, edição durante atualização automática, consultas antigas terminando após o salvamento, novas edições durante uma gravação, falha com reenvio, atualização do status na liberação e nova consulta quando a leitura do horário de liberação falha ou chega atrasada (inclusive na trilha do participante). Usa a mesma configuração de Playwright descrita acima; também está disponível como `npm run test:release` no frontend.
+`node_release.cjs` intercepta a API e controla o relógio do navegador para verificar fusos, preservação do horário após salvar, edição durante atualização automática, consultas antigas terminando após o salvamento, novas edições durante uma gravação, falha com reenvio, atualização do status na liberação e nova consulta quando a leitura do horário de liberação falha ou chega atrasada (inclusive na trilha do participante). Também cobre o avanço automático depois do prazo de uma atividade não entregue, a indicação de pendência e a atualização das atividades e da biblioteca, incluindo consulta demorada e falha temporária. Usa a mesma configuração de Playwright descrita acima; também está disponível como `npm run test:release` no frontend.
 
 `deadlines.cjs` verifica, nos fusos da Bahia e de Kolkata e com respostas antigas sem `Z`, a exibição dos prazos no painel (atividades e trilha), na aba de atividades do trainee e na etapa aberta por trainees e membros, em que o prazo da etapa prevalece sobre o da atividade. Também verifica que salvar a edição de uma atividade ou de um nó sem mexer no prazo mantém o mesmo instante. Disponível como `npm run test:deadlines`.
 
 `test_nodes.py` verifica na API a equivalência entre UTC e outros offsets, retorno com fuso explícito, compatibilidade com registros antigos, recusa de entradas sem fuso, liberação antes/no/depois do instante, pré-requisitos, liberação imediata e revogação. `test_nodes.py` e `test_access.py` cobrem o mesmo contrato para os prazos de nós e de atividades, incluindo o fechamento das entregas exatamente no prazo. Esses testes usam SQLite descartável; não substituem a validação com PostgreSQL de produção.
+
+`test_deadlines.py` também verifica que uma atividade vencida e alcançada deixa de bloquear a próxima etapa exatamente no prazo, sem criar entrega, conclusão, nota ou pontos. Cobre acesso direto, listagem, biblioteca, anexos e envios com ou sem ID da etapa; liberação manual e agendada; várias atividades vencidas; pré-requisito explícito fora da ordem; prorrogação do prazo; manutenção do bloqueio por jogos e isolamento entre eixos.
+
+`assessment_weights.cjs` usa respostas simuladas para verificar que rolar a página com o peso selecionado não muda o valor enviado ao salvar. Cobre peso 3 e peso decimal 2,7 na criação e edição de atividades e na edição de etapas de jogo, incluindo recarregar e reabrir o formulário. Execute com o frontend disponível: `BASE_URL=http://127.0.0.1:3017 node frontend/tests/assessment_weights.cjs`, ou `npm run test:weights` dentro de `frontend/`.
 
 ## Nota mínima, acerto parcial, comemoração e gamificação
 
